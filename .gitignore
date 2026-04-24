@@ -1,0 +1,60 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# Build artifacts
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Backup files (local splits / pre-refactor snapshots)
+_backup/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Data files (too large for git)
+*.pkl
+*.npy
+*.nii
+*.nii.gz
+*.csv
+
+# Generated reports
+optimization_history.html
+param_importance.html
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# Scripts — data and generated artefacts
+scripts/*.csv
+scripts/*.png
+
+# Pytest
+.pytest_cache/
+
+# Sphinx build output
+docs/_build/
+
