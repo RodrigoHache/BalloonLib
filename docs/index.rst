@@ -19,8 +19,15 @@ response functions (HRFs) from fMRI BOLD signals using the Balloon model
    :maxdepth: 2
    :caption: API Reference
 
-   api/balloonpinnlib
+   api/model
+   api/training
+   api/physics
+   api/layers
+   api/metrics
+   api/data
+   api/utils
    api/balloonmodellib
+   api/balloonpinnlib
    api/plotting
    api/rwf_layers
 
