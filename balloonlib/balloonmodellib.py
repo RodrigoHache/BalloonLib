@@ -309,24 +309,25 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
 
 # @njit
 def m_t_E(f_in: np.ndarray, E0: float = 0.32):
-    # '''
-    # m_t_E
-    #
+    """
+    Compute normalized CMRO2 (cerebral metabolic rate of oxygen).
 
-    # En estado estable, el CBF y el CMRO_2 están relacionados entre sí por la concentración arterial de oxígeno y 
-    # la fracción neta de extracción de oxígeno E.
-    # La forma de CMRO_2 que se presenta a continuación, corresponde su forma normalizada contra su estado basal; 
-    # proviene de la ecuación (2) de Buxton 2004, sumando E de Friston 2000.
+    At steady state, CBF and CMRO2 are related by arterial oxygen concentration
+    and the net oxygen extraction fraction E. This corresponds to the normalized
+    form from Buxton 2004 eq. (2), with E from Friston 2000.
 
-    # **Inputs:**
+    Parameters
+    ----------
+    f_in : np.ndarray
+        Input flow (equation 13).
+    E0 : float, optional
+        Baseline oxygen extraction fraction, by default 0.32 (Buxton 2004).
 
-    #     - ``f_in`` : array, corresponde a la ecuación 13 i.e. el flujo de ingreso.
-    #     - ``E0 `` : float, oxígeno extraído de la sangre, 0.32 por defecto. Valor en Buxton 2004
-
-    # **Outputs:**
-
-    #     - ``mE`` : array, CMRO_2 normalizada contra su estado basal, en función de la proporción de oxígeno 
-    # extraído de la sangre 'E'.
+    Returns
+    -------
+    mE : np.ndarray
+        Normalized CMRO2 relative to baseline, as a function of oxygen
+        extraction fraction E.
 
     # '''
 
@@ -351,8 +352,8 @@ def vol_func(
     """
     **vol_func**
 
-    vol_fungives the solution for the differential equation for volume, according to a combination of equations 
-    10 and 11 on Buxton's 2004 from 2004
+    vol_func gives the solution for the differential equation for volume, according to a combination of equations
+    10 and 11 on Buxton's 2004
 
     **Inputs:**
 
@@ -826,6 +827,30 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
 
 # @njit
 def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
+    """
+    Compute BOLD signal using the Davis model.
+
+    Parameters
+    ----------
+    f : np.ndarray
+        Normalized cerebral blood flow.
+    m : np.ndarray
+        Normalized CMRO2 (cerebral metabolic rate of oxygen).
+    author : str, optional
+        Model parameters to use. Either "Davis1998" or "Maith2022",
+        by default "Davis198".
+
+    Returns
+    -------
+    bold : np.ndarray
+        BOLD signal computed as: A * (1 - f^(alpha - beta) * m^beta)
+        where A, alpha, beta depend on the chosen author.
+
+    Notes
+    -----
+    Davis1998: A=0.075, alpha=0.4, beta=1.5
+    Maith2022: A=140.9, alpha=0.14, beta=0.91
+    """
     if author == "Davis1998":
         A = 0.075  #   "Amplitud constant"
         alpha = 0.4  #   "TODO"
