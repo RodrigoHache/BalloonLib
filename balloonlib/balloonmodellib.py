@@ -280,7 +280,7 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
     """
     Efun
 
-    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre 'E'. 'Efun', definido aquí, proviene 
+    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre `E`. `Efun`, definido aquí, proviene 
     de (Friston et al., 2000: Nonlinear Responses in fMRI:...), que a su vez cita a (Buxton et al., 1998)
 
     **Inputs:**
@@ -329,7 +329,7 @@ def m_t_E(f_in: np.ndarray, E0: float = 0.32):
         Normalized CMRO2 relative to baseline, as a function of oxygen
         extraction fraction E.
 
-    # '''
+    """
 
     E_0 = 0.32  # "baseline value of oxygen extraction fraction"
 
@@ -353,7 +353,7 @@ def vol_func(
     **vol_func**
 
     vol_func gives the solution for the differential equation for volume, according to a combination of equations
-    10 and 11 on Buxton 2004 paper
+    10 and 11 on Buxton`s 2004 paper
 
     **Inputs:**
 
@@ -774,9 +774,9 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     Parameters
     ----------
     vt : np.ndarray
-        A 1D array of volume (in arbitrary units) over time.
+        A 1-D array of volume (in arbitrary units) over time.
     qt : np.ndarray
-        A 1D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
+        A 1-D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
     params : dict or None, optional
         Model parameters (E_0, V_0, v_0, TE, epsilon, and r_0).
         Defaults to None.
@@ -786,8 +786,9 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     Returns
     -------
     bold : np.ndarray
-        A 1D array of simulated BOLD signals over time.
+        A 1-D array of simulated BOLD signals over time.
     """
+    E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
 
     E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
     V_0 = 0.03  # "Baseline blood volume")
