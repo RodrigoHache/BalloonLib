@@ -353,16 +353,16 @@ def vol_func(
     **vol_func**
 
     vol_func gives the solution for the differential equation for volume, according to a combination of equations
-    10 and 11 on Buxton's 2004
+    10 and 11 on Buxton 2004 paper
 
     **Inputs:**
 
         - ``f_in``:  np.ndarray, corresponds to equation 13, i.e. the income flow.
         - ``params``: dict, includes the constants from equations 10 and 11, which are {tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]}.
+        tau_m in [0, 30]}.
         - ``dt``: float, dt refers to the integration step.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e. 
-        tau = 0 or 0 < tau ≤ 30.
+        tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -424,9 +424,9 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
         - ``vol``: np.ndarray, time series of volume.
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e. the inflow.
         - ``viscoelastic``: bool, determines whether the outflow accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
         - ``params``: dict, includes the constants from equations 10 and 11, which are 
-        {tau_MTT = 3.0, alpha = 0.4, tau_m ∈ [0, 30]}.
+        {tau_MTT = 3.0, alpha = 0.4, tau_m in [0, 30]}.
 
     **Outputs:**
 
@@ -510,10 +510,10 @@ def q_func(
         - ``mt``: np.ndarray, time series of normalized cerebral oxygen metabolic rate (CMRO2) to its resting value.
         - ``f_out``: np.ndarray, time series of the outflow according to equation 11 of Buxton 2004.
         - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]].
+        tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -572,11 +572,11 @@ def Balloon_odeint(
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
         - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]].
+        tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``y0``: tuple, initial coordinates for both vt and qt.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -654,11 +654,11 @@ def Balloon_ivp(
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
         - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
-         tau_m ∈ [0, 30]].
+         tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``y0``: tuple, initial coordinates for both vt and qt.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -764,24 +764,29 @@ def cartesian(arrays, out=None):
 
 
 def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
-    """
-    **BOLD_func**
+    """Compute BOLD signal from volume and deoxyhemoglobin.
 
-    Calculates the blood oxygen level-dependent (BOLD) signal using volume (vt) and deoxyhemoglobin (qt) values 
-    according to the estimates of Obata (2004) and Buxton (2000) as presented in Stephen (2007).
+    Calculates the blood oxygen level-dependent (BOLD) signal using
+    volume (vt) and deoxyhemoglobin (qt) values according to the
+    estimates of Obata (2004) and Buxton (2000) as presented in
+    Stephen (2007).
 
-    **Inputs:**
+    Parameters
+    ----------
+    vt : np.ndarray
+        A 1D array of volume (in arbitrary units) over time.
+    qt : np.ndarray
+        A 1D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
+    params : dict or None, optional
+        Model parameters (E_0, V_0, v_0, TE, epsilon, and r_0).
+        Defaults to None.
+    BM : str, optional
+        Kind of Balloon Model, either "classic" or "revised" (default: "classic").
 
-    - ``vt``: np.ndarray, a 1D array of volume (in arbitrary units) over time.
-    - ``qt``: np.ndarray, a 1D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
-    - ``params``: dict, or None, a list of model parameters (optional, defaults to None) E_0, V_0, v_0, TE, epsilon, and r_0.
-    - ``BM``: str, kind of Balloon Model (optional, default is "classic," while the alternative is "revised") 
-    according to Stephen 2007.
-
-    **Outputs:**
-
-    - ``bold``: np.ndarray, a 1D array of simulated BOLD signals over time.
-
+    Returns
+    -------
+    bold : np.ndarray
+        A 1D array of simulated BOLD signals over time.
     """
 
     E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
