@@ -280,7 +280,7 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
     """
     Efun
 
-    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre 'E'. 'Efun', definido aquí, proviene 
+    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre `E`. `Efun`, definido aquí, proviene 
     de (Friston et al., 2000: Nonlinear Responses in fMRI:...), que a su vez cita a (Buxton et al., 1998)
 
     **Inputs:**
@@ -309,26 +309,27 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
 
 # @njit
 def m_t_E(f_in: np.ndarray, E0: float = 0.32):
-    # '''
-    # m_t_E
-    #
+    """
+    Compute normalized CMRO2 (cerebral metabolic rate of oxygen).
 
-    # En estado estable, el CBF y el CMRO_2 están relacionados entre sí por la concentración arterial de oxígeno y 
-    # la fracción neta de extracción de oxígeno E.
-    # La forma de CMRO_2 que se presenta a continuación, corresponde su forma normalizada contra su estado basal; 
-    # proviene de la ecuación (2) de Buxton 2004, sumando E de Friston 2000.
+    At steady state, CBF and CMRO2 are related by arterial oxygen concentration
+    and the net oxygen extraction fraction E. This corresponds to the normalized
+    form from Buxton 2004 eq. (2), with E from Friston 2000.
 
-    # **Inputs:**
+    Parameters
+    ----------
+    f_in : np.ndarray
+        Input flow (equation 13).
+    E0 : float, optional
+        Baseline oxygen extraction fraction, by default 0.32 (Buxton 2004).
 
-    #     - ``f_in`` : array, corresponde a la ecuación 13 i.e. el flujo de ingreso.
-    #     - ``E0 `` : float, oxígeno extraído de la sangre, 0.32 por defecto. Valor en Buxton 2004
+    Returns
+    -------
+    mE : np.ndarray
+        Normalized CMRO2 relative to baseline, as a function of oxygen
+        extraction fraction E.
 
-    # **Outputs:**
-
-    #     - ``mE`` : array, CMRO_2 normalizada contra su estado basal, en función de la proporción de oxígeno 
-    # extraído de la sangre 'E'.
-
-    # '''
+    """
 
     E_0 = 0.32  # "baseline value of oxygen extraction fraction"
 
@@ -351,17 +352,17 @@ def vol_func(
     """
     **vol_func**
 
-    vol_fungives the solution for the differential equation for volume, according to a combination of equations 
-    10 and 11 on Buxton's 2004 from 2004
+    vol_func gives the solution for the differential equation for volume, according to a combination of equations
+    10 and 11 on Buxton`s 2004 paper
 
     **Inputs:**
 
         - ``f_in``:  np.ndarray, corresponds to equation 13, i.e. the income flow.
         - ``params``: dict, includes the constants from equations 10 and 11, which are {tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]}.
+        tau_m in [0, 30]}.
         - ``dt``: float, dt refers to the integration step.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e. 
-        tau = 0 or 0 < tau ≤ 30.
+        tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -423,9 +424,9 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
         - ``vol``: np.ndarray, time series of volume.
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e. the inflow.
         - ``viscoelastic``: bool, determines whether the outflow accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
         - ``params``: dict, includes the constants from equations 10 and 11, which are 
-        {tau_MTT = 3.0, alpha = 0.4, tau_m ∈ [0, 30]}.
+        {tau_MTT = 3.0, alpha = 0.4, tau_m in [0, 30]}.
 
     **Outputs:**
 
@@ -509,10 +510,10 @@ def q_func(
         - ``mt``: np.ndarray, time series of normalized cerebral oxygen metabolic rate (CMRO2) to its resting value.
         - ``f_out``: np.ndarray, time series of the outflow according to equation 11 of Buxton 2004.
         - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]].
+        tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -571,11 +572,11 @@ def Balloon_odeint(
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
         - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
-        tau_m ∈ [0, 30]].
+        tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``y0``: tuple, initial coordinates for both vt and qt.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -653,11 +654,11 @@ def Balloon_ivp(
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
         - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
-         tau_m ∈ [0, 30]].
+         tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``y0``: tuple, initial coordinates for both vt and qt.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau ≤ 30.
+         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
 
@@ -763,25 +764,31 @@ def cartesian(arrays, out=None):
 
 
 def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
+    """Compute BOLD signal from volume and deoxyhemoglobin.
+
+    Calculates the blood oxygen level-dependent (BOLD) signal using
+    volume (vt) and deoxyhemoglobin (qt) values according to the
+    estimates of Obata (2004) and Buxton (2000) as presented in
+    Stephen (2007).
+
+    Parameters
+    ----------
+    vt : np.ndarray
+        A 1-D array of volume (in arbitrary units) over time.
+    qt : np.ndarray
+        A 1-D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
+    params : dict or None, optional
+        Model parameters (E_0, V_0, v_0, TE, epsilon, and r_0).
+        Defaults to None.
+    BM : str, optional
+        Kind of Balloon Model, either "classic" or "revised" (default: "classic").
+
+    Returns
+    -------
+    bold : np.ndarray
+        A 1-D array of simulated BOLD signals over time.
     """
-    **BOLD_func**
-
-    Calculates the blood oxygen level-dependent (BOLD) signal using volume (vt) and deoxyhemoglobin (qt) values 
-    according to the estimates of Obata (2004) and Buxton (2000) as presented in Stephen (2007).
-
-    **Inputs:**
-
-    - ``vt``: np.ndarray, a 1D array of volume (in arbitrary units) over time.
-    - ``qt``: np.ndarray, a 1D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
-    - ``params``: dict, or None, a list of model parameters (optional, defaults to None) E_0, V_0, v_0, TE, epsilon, and r_0.
-    - ``BM``: str, kind of Balloon Model (optional, default is "classic," while the alternative is "revised") 
-    according to Stephen 2007.
-
-    **Outputs:**
-
-    - ``bold``: np.ndarray, a 1D array of simulated BOLD signals over time.
-
-    """
+    E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
 
     E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
     V_0 = 0.03  # "Baseline blood volume")
@@ -826,6 +833,30 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
 
 # @njit
 def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
+    """
+    Compute BOLD signal using the Davis model.
+
+    Parameters
+    ----------
+    f : np.ndarray
+        Normalized cerebral blood flow.
+    m : np.ndarray
+        Normalized CMRO2 (cerebral metabolic rate of oxygen).
+    author : str, optional
+        Model parameters to use. Either "Davis1998" or "Maith2022",
+        by default "Davis198".
+
+    Returns
+    -------
+    bold : np.ndarray
+        BOLD signal computed as: A * (1 - f^(alpha - beta) * m^beta)
+        where A, alpha, beta depend on the chosen author.
+
+    Notes
+    -----
+    Davis1998: A=0.075, alpha=0.4, beta=1.5
+    Maith2022: A=140.9, alpha=0.14, beta=0.91
+    """
     if author == "Davis1998":
         A = 0.075  #   "Amplitud constant"
         alpha = 0.4  #   "TODO"

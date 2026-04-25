@@ -23,11 +23,38 @@ dtype = torch.float32
 # ---------------------------------------------------------------------------
 # Tensor ↔ NumPy converters
 # ---------------------------------------------------------------------------
+def tensor2np(tensor):
+    """Turns a tensor into an numpy array
+    
+    Parameter
+    ---------
+    tensor : torch.Tensor
+        Data to turn into a numpy.array
+    
+    Returns
+    -------
+    transformed : numpy.array
+        Transformed array of the same shape as ``tensor``.
+    """
+    return tensor.detach().cpu().numpy()  
 
-tensor2np = lambda tensor: tensor.detach().cpu().numpy()  # noqa: E731
-np2tensor = lambda vector: torch.tensor(  # noqa: E731
+def np2tensor(vector):
+    """Turns an array into an torch.Tensor 
+    
+    Parameter
+    ---------
+    tensor : numpy.array
+        data to transform to torch.Tensor
+    
+    Returns
+    -------
+    transformed : torch.Tensor
+        Data turned into a numpy.array
+    """
+    transformed = torch.tensor(
     vector, requires_grad=True, dtype=torch.float32
-).view(-1, 1)
+        ).view(-1, 1)
+    return transformed
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +103,7 @@ def scale_domains(
 
     Examples
     --------
-    Global transform ``[0, 30] → [0, 1]``::
+    Global transform ``[0, 30] -> [0, 1]``::
 
         >>> data = torch.tensor([[0., 10., 20.], [5., 15., 30.]])
         >>> t, s = scale_domains(data, (0, 30), (0, 1))
