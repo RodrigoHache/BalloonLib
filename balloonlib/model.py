@@ -14,6 +14,7 @@ from balloonlib.physics import dfdt
 # Global dtype (mirrors balloonpinnlib globals so Multihead methods are consistent)
 dtype = torch.float32
 
+
 class Multihead(nn.Module):
     """Multi-head Physics-Informed Neural Network for the Balloon haemodynamic model.
 
@@ -107,7 +108,7 @@ class Multihead(nn.Module):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed(self.seed)
                 torch.cuda.manual_seed_all(self.seed)
-        
+
         # Balloon model constants
         self.DEFAULT_PARAMS = {
             "E_0": torch.tensor(
@@ -129,8 +130,8 @@ class Multihead(nn.Module):
         # Grubb's exponent (initial)
         self._alpha = nn.Parameter(torch.tensor(0.4, dtype=dtype))  # , 0.4 #
         # alpha Soft Clamp (bounded according to Griffeth 2011)
-        self.aSClamp = SoftClamp(min_val=0.01, max_val=0.65) 
-        
+        self.aSClamp = SoftClamp(min_val=0.01, max_val=0.65)
+
         # Davis (1998) BOLD model parameters
         self.Davis_params = {
             "alpha": self.alpha,
@@ -216,6 +217,7 @@ class Multihead(nn.Module):
     def alpha(self):
         """Clamped Grubb's constant relating CBF and CBV"""
         return self.aSClamp(self._alpha)
+
     @property
     def epsilon(self):
         """Clamped intra/extravascular BOLD ratio (non-negative)."""
