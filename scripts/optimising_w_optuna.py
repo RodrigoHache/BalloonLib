@@ -99,6 +99,7 @@ def default_balloon_params(impulse: torch.Tensor) -> Dict[str, Any]:
     dict
         ``Balloon_params`` dict ready for :func:`~balloonlib.training.loss`.
     """
+    tmp = load_balloon_data()
     return {
         "lambdar_list": [0.2, 0.05],
         "kappa_list":   [1 / 1.54, 1 / 1.54],
@@ -106,7 +107,7 @@ def default_balloon_params(impulse: torch.Tensor) -> Dict[str, Any]:
         "tau_m_list":   20,
         "tau_MTT_list": 3.0,
         "alpha":        0.4,
-        "I":            Impulse,
+        "I":            tmp['I'],
     }
 
 

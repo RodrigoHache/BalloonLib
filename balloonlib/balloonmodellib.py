@@ -456,13 +456,14 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     a = alpha
 
     fout = ((tauMTT * vol ** (1 / a)) + taum * f_in) / (tauMTT + taum)
-    
     mask = (fout < 0.0) 
+    
     if np.any(mask):
         tmp = np.zeros_like(fout)
         return np.maximum(tmp,fout)
     
-    else: return fout
+    else: 
+        return fout
 
 
 # @njit
@@ -720,7 +721,6 @@ def Balloon_ivp(
     v, q = solver(time, f, m, y0)
     return (v, q)
 
-
 # @njit
 def cartesian(arrays, out=None):
     """
@@ -759,7 +759,6 @@ def cartesian(arrays, out=None):
     result = np.concatenate([x.reshape(-1, 1) for x in mesh], axis=1)
     return result
 
-
 def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     """Compute BOLD signal from volume and deoxyhemoglobin.
 
@@ -785,8 +784,6 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     bold : np.ndarray
         A 1-D array of simulated BOLD signals over time.
     """
-    E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
-
     E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
     V_0 = 0.03  # "Baseline blood volume")
     TE = 0.04  # "Echo time in miliseconds")
@@ -826,7 +823,6 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     k_3 = 1.0 - eps
 
     return V_0 * (k_1 * (1.0 - qt) + k_2 * (1.0 - qt / vt) + k_3 * (1.0 - vt))
-
 
 # @njit
 def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
@@ -871,6 +867,3 @@ def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
     bold = A * (1 - f ** (a - b) * m**b)
 
     return bold
-
-
-# %%

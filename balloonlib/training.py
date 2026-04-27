@@ -575,7 +575,9 @@ def train(
             )
 
         # Dynamic amplitude adjustment (activated after warm-up)
-        if i > 100:
+        if i <= 100:
+            amp_i = 1e3
+        else: # i > 100:
             amp_pi = amp_p.sample()
             tmp = np.mean(loss_trace["bold"][-11:-1]) / (
                 np.mean(
@@ -585,9 +587,7 @@ def train(
                 )
             )
             amp_i = (amp_pi * amp_i + (1 - amp_pi) * tmp).item()
-        else:
-            amp_i = 1e3
-
+        
         for k in loss_weights.keys():
             if k != "bold" and loss_weights["bold"][0] > 0.0:
                 amp[k] = np.round(amp_i, 1) if np.round(amp_i, 1) > 1 else 1.0

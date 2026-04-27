@@ -15,7 +15,7 @@ The script shows:
 import torch
 import torch.nn as nn
 import sys
-import os
+import os 
 
 # Add the parent directory to the path to import balloonlib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -229,7 +229,7 @@ def verify_initialization():
     exp_scales = torch.stack(exp_scale_values)
     
     print(f"\nScale factor (s) statistics over {n_samples} initializations:")
-    print(f"  Expected: s ~ N(mu=1.0, sigma=0.1)")
+    print("  Expected: s ~ N(mu=1.0, sigma=0.1)")
     print(f"  Observed mean: {scales.mean().item():.4f}")
     print(f"  Observed std:  {scales.std().item():.4f}")
     

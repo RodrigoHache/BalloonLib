@@ -270,27 +270,27 @@ def loss_ballon_random_NORM_TIME(
         t_samples_real[t_samples_real > domain[1]] = domain[1] - epsilon_val
         t_samples_real = t_samples_real.to(dtype).view(-1, 1)
 
-        if ("f" in data) | ("m" in data):
-            r_samples = r[samples_index, :].to(dtype)
-            f_loss = meFn(data["f"][samples_index], r_samples[:, 0]) if "f" in data else torch.zeros_like(ode_loss)
-            m_loss = meFn(data["m"][samples_index], r_samples[:, 1]) if "m" in data else torch.zeros_like(ode_loss)
-            nv_ode_loss = f_loss + m_loss
-        else:
-            nv_ode_loss = torch.zeros_like(ode_loss)
+        # if ("f" in data) | ("m" in data):
+        #     r_samples = r[samples_index, :].to(dtype)
+        #     f_loss = meFn(data["f"][samples_index], r_samples[:, 0]) if "f" in data else torch.zeros_like(ode_loss)
+        #     m_loss = meFn(data["m"][samples_index], r_samples[:, 1]) if "m" in data else torch.zeros_like(ode_loss)
+        #     nv_ode_loss = f_loss + m_loss
+        # else:
+        #     nv_ode_loss = torch.zeros_like(ode_loss)
 
-        if ("v" in data) and ("q" in data):
-            v_ode = data["v"][samples_index].to(dtype)
-            q_ode = data["q"][samples_index].to(dtype)
-            core_ode_loss = meFn(v_ode, model.v[samples_index]) + meFn(
-                q_ode, model.q[samples_index]
-            )
-        else:
-            core_ode_loss = torch.zeros_like(ode_loss)
+        # if ("v" in data) and ("q" in data):
+        #     v_ode = data["v"][samples_index].to(dtype)
+        #     q_ode = data["q"][samples_index].to(dtype)
+        #     core_ode_loss = meFn(v_ode, model.v[samples_index]) + meFn(
+        #         q_ode, model.q[samples_index]
+        #     )
+        # else:
+        #     core_ode_loss = torch.zeros_like(ode_loss)
 
-        if "Bold_ode" in data:
-            Bold_ode_samps = data["Bold_ode"][samples_index].view(-1, 1).to(dtype)
-            hrf_pinn_samps = hrf_pinn[samples_index].view(-1, 1)
-            bold_loss = meFn(bamp * hrf_pinn_samps, bamp * Bold_ode_samps)
+        # if "Bold_ode" in data:
+        #     Bold_ode_samps = data["Bold_ode"][samples_index].view(-1, 1).to(dtype)
+        #     hrf_pinn_samps = hrf_pinn[samples_index].view(-1, 1)
+        #     bold_loss = meFn(bamp * hrf_pinn_samps, bamp * Bold_ode_samps)
 
     # ============================================
     # STEP 7: Initial/Boundary conditions
