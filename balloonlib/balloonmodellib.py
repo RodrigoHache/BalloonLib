@@ -39,13 +39,13 @@ def neural_response(
     tau_i = 2  # "Inhibitory time constant" )
     n_0 = 0.316  # "Basal Neural Activity")
 
-    if params != None:
+    if params is not None:
         if "k" in params:
             k = params["k"]
         if "tau_i" in params:
             tau_i = params["tau_i"]
 
-    # stimulus_array= np.asarray(stimulus, dtype=np.float32)
+    
     ext_stim = stimulus  # array_extend(stimulus_array, dt=dt)
 
     # ext_stim[100] = 1 ###### ESTO ES SOLO PARA PROBAR EL DELTA EN LA VERSIÖN FINAL
@@ -64,14 +64,14 @@ def neural_response(
             I = np.append(I, [y.T[0][1]])
         return I
 
-    I = solver(time, ext_stim)
+    Impulse = solver(time, ext_stim)
 
-    if N_0 == False:
+    if not N_0 :
         response = ext_stim * (
-            1 - I
+            1 - Impulse
         )  # Im using ext_stim like indicator function otherwise we would have a rebound
     else:
-        response = n_0.random() + ext_stim - I
+        response = n_0.random() + ext_stim - Impulse
         response[np.where(response <= 0.0)] = 0.0
 
     if scale:
@@ -160,7 +160,7 @@ def NeurovascularCoupling(
     """
     if version == "convolution":
 
-        if params != None:
+        if params is not None:
             if "tau_f" in params:
                 tau_f = params["tau_f"]  # "Width of CBF impulse response"
             if "delta_tf" in params:
@@ -185,7 +185,7 @@ def NeurovascularCoupling(
         # ``Nt``: array, obtained neuronal response.
         # ``time``: array,internally used to implement a gamma function
         # using time (plus a delay) as its domain.the time over which this unfolds.
-        Nt, time = neural_response(stimulus, dt, N_0=False, scale=True, params=None)
+        Nt, time = neural_response(stimulus, dt, N_0=False, scale=scale, params=None)
 
         def gamma(tau_h, t):
             k = 3  # "Nameless constant, revisit Buxton 2004 eq 12" )
@@ -211,7 +211,7 @@ def NeurovascularCoupling(
         g = 1 / 2.46  ## Maith 2022
         # gamma = 0.4 ## Friston 2000
 
-        if params != None:
+        if params is not None:
             if "kappa" in params:
                 k = params["kappa"]
             if "gamma" in params:
@@ -295,7 +295,7 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
     """
     E_0 = 0.32  # "baseline value of oxygen extraction fraction"
 
-    if E0 != None:
+    if E0 is not None:
         E_0 = E0
 
     try:
@@ -333,7 +333,7 @@ def m_t_E(f_in: np.ndarray, E0: float = 0.32):
 
     E_0 = 0.32  # "baseline value of oxygen extraction fraction"
 
-    if E0 != None:
+    if E0 is not None:
         E_0 = E0
 
     mE = f_in * (Efun(f_in, E_0) / E_0)
@@ -376,7 +376,7 @@ def vol_func(
     tau_m = 10  # Viscoelastic time constant (deflation)
     tau_p = 15  # Viscoelastic time constant (inflation)
 
-    if params != None:
+    if params is not None:
         if "tau_MTT" in params:
             tau_MTT = params["tau_MTT"]
         if "alpha" in params:
@@ -439,7 +439,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     tau_m = 10  # "Viscoelastic time constant (deflation)"
     tau_p = 15  # "Viscoelastic time constant (inflation)"
 
-    if params != None:
+    if params is not None:
         if "tau_MTT" in params:
             tau_MTT = params["tau_MTT"]
         if "alpha" in params:
@@ -523,7 +523,7 @@ def q_func(
 
     tau_MTT = 3.0  # "venous time constant")
 
-    if params != None:
+    if params is not None:
         if "tau_MTT" in params:
             tau_MTT = params["tau_MTT"]
 
@@ -588,7 +588,7 @@ def Balloon_odeint(
     alpha = 0.4  # "Grubb's exponent (stiffness)"
     tau_m = 10  # "Viscoelastic time constant (deflation)"
 
-    if params != None:
+    if params is not None:
         if "tau_MTT" in params:
             tau_MTT = params["tau_MTT"]
         if "alpha" in params:
@@ -666,7 +666,7 @@ def Balloon_ivp(
         - ``q``: np.ndarray, time series of deoxyhemoglobin content.
     """
 
-    if params != None:
+    if params is not None:
         if "tau_MTT" in params:
             tau_MTT = params["tau_MTT"]
         if "alpha" in params:
@@ -799,7 +799,7 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     O_o = 40.3  # "The frequency offset at the outer surface of the magnetised vessel for fully deoxygenated blood. 
     # For a field strength of 1.5[T], v0=40.3 s^{-1}")
 
-    if params != None:
+    if params is not None:
         if "E_0" in params:
             E_0 = params["E_0"]
         if "V_0" in params:
