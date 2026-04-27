@@ -3,7 +3,6 @@ Shared pytest fixtures for BalloonLib tests.
 """
 import pytest
 import torch
-import numpy as np
 
 
 @pytest.fixture(scope="session")

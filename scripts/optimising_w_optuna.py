@@ -36,11 +36,8 @@ import torch.optim as optim
 import numpy as np
 
 # ── BalloonLib imports (direct submodules — no shim)
-from balloonlib import balloonmodellib as bml
 from balloonlib.model    import Multihead
 from balloonlib.training import loss as balloon_loss, train
-from balloonlib.data     import experimental_stims
-from balloonlib.utils    import np2tensor, tensor2np
 
 # ============================================================================
 # CONFIGURATION
@@ -80,12 +77,12 @@ def load_balloon_data() -> Dict[str, Any]:
     max_elements = 3000
 
     # Synthetic stimulus: on from t ≈ 0.067 to t ≈ 0.10  (physical: 2–3 s)
-    I = torch.zeros(max_elements)
+    Impulse = torch.zeros(max_elements)
     stim_start = int(0.067 * max_elements)
     stim_end   = int(0.10  * max_elements)
-    I[stim_start:stim_end] = 1.0
+    Impulse[stim_start:stim_end] = 1.0
 
-    return {"I": I, "max_elements": max_elements}
+    return {"I": Impulse, "max_elements": max_elements}
 
 
 def default_balloon_params(impulse: torch.Tensor) -> Dict[str, Any]:
@@ -109,7 +106,7 @@ def default_balloon_params(impulse: torch.Tensor) -> Dict[str, Any]:
         "tau_m_list":   20,
         "tau_MTT_list": 3.0,
         "alpha":        0.4,
-        "I":            impulse,
+        "I":            Impulse,
     }
 
 
@@ -236,8 +233,8 @@ def objective(trial: optuna.Trial) -> float:
     """
     # ── Data
     data     = load_balloon_data()
-    I        = data["I"]
-    domain   = (0.0, len(I) * 0.01)   # physical domain in seconds
+    Impulse        = data["I"]
+    domain   = (0.0, len(Impulse) * 0.01)   # physical domain in seconds
 
     # ── Model
     try:
@@ -311,7 +308,7 @@ def objective(trial: optuna.Trial) -> float:
     }
 
     # ── Parameters dicts
-    balloon_params = default_balloon_params(I)
+    balloon_params = default_balloon_params(Impulse)
     data_params    = default_data_params()
 
     # ── Train via the canonical train() loop

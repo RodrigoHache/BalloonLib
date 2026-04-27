@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import colorsys
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -393,8 +392,6 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
             border_loss_trace = value
         elif key == "bold":
             bold_loss_trace = value
-        elif key == "other":
-            other_loss_trace = value
         else:
             raise ValueError("Unknown loss key: " + key)
 
@@ -728,8 +725,6 @@ def plot_weights(
             border_loss_trace = value
         elif key == "bold":
             bold_loss_trace = value
-        elif key == "other":
-            other_loss_trace = value
         else:
             raise ValueError("Unknown key: " + key)
 

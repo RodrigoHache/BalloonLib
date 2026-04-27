@@ -140,7 +140,7 @@ def compute_temporal_weights(
 
 def weighted_temporal_ode_loss(
     residual: torch.Tensor,
-    meFn,
+    meFn = nn.MSELoss(),
     n_segments: int = 10,
     epsilon: float = 1.0,
     normalize_weights: bool = True,

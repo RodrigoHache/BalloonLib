@@ -7,9 +7,7 @@ simultaneously predicts the four Balloon haemodynamic state variables.
 
 import torch
 import torch.nn as nn
-from typing import List, Tuple
 
-from balloonlib import balloonmodellib as bml
 from balloonlib.layers import FourierFeatureMapping, FactorizedLinear
 from balloonlib.physics import dfdt
 

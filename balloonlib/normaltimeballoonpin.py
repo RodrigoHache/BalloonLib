@@ -30,7 +30,7 @@ Date: 2025-12-16
 
 import torch
 import torch.nn as nn
-from typing import Tuple, Dict, Optional
+from typing import Tuple
 from balloonlib.balloonpinnlib import dfdt
 
 
@@ -124,7 +124,7 @@ def loss_ballon_random_NORM_TIME(
               'border_loss', and 'Bold_loss'.
     """
     max_samples = (
-        data["I"].size()[0] if sample_size == None else sample_size
+        data["I"].size()[0] if sample_size is None else sample_size
     )  # length of the impulse tensor (in samples)
 
     # ============================================
@@ -182,7 +182,7 @@ def loss_ballon_random_NORM_TIME(
     # ============================================
     # STEP 5: Compute ODE residual (using PHYSICAL time values)
     # ============================================
-    I = data["I"].view(-1, 1).expand(-1, 2)  # shape (sample_size, 2)
+    Impulse = data["I"].view(-1, 1).expand(-1, 2)  # shape (sample_size, 2)
     
     lambdar_list = torch.tensor(Balloon_params["lambdar_list"], dtype=dtype).unsqueeze(0)
     kappa_list = torch.tensor(Balloon_params["kappa_list"], dtype=dtype).unsqueeze(0)

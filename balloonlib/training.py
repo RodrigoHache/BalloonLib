@@ -11,12 +11,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from balloonlib import balloonmodellib as bml
 from balloonlib.physics import dfdt, weighted_temporal_ode_loss
 from balloonlib.data import training_data, segmentData, experimental_stims
-from balloonlib.utils import tensor2np, pytorch_convolve, timeBall, tofit
+from balloonlib.utils import timeBall, tofit
 from balloonlib.plotting import plot_balloon_fitting
 
 # Module-level device / dtype (mirrors balloonpinnlib globals)
@@ -299,7 +299,7 @@ def loss(
         raise ValueError("dpredt_num is NaN")
     
     # ODE residual
-    I = Balloon_params["I"].reshape(-1, 1)
+    Impulse = Balloon_params["I"].reshape(-1, 1)
     lambdar_list = torch.tensor(Balloon_params["lambdar_list"], dtype=dtype).unsqueeze(0)
     kappa_list   = torch.tensor(Balloon_params["kappa_list"],   dtype=dtype).unsqueeze(0)
     gamma_list   = torch.tensor(Balloon_params["gamma_list"],   dtype=dtype).unsqueeze(0)
@@ -310,8 +310,8 @@ def loss(
 
     residual = torch.cat(
         [
-            d2findt2 - (lambdar_list[0, 0] * I - kappa_list[0, 0] * dfindt - gamma_list[0, 0] * (model.f - 1)),
-            d2mtdt2  - (lambdar_list[0, 1] * I - kappa_list[0, 1] * dmdt   - gamma_list[0, 1] * (model.m - 1)),
+            d2findt2 - (lambdar_list[0, 0] * Impulse - kappa_list[0, 0] * dfindt - gamma_list[0, 0] * (model.f - 1)),
+            d2mtdt2  - (lambdar_list[0, 1] * Impulse - kappa_list[0, 1] * dmdt   - gamma_list[0, 1] * (model.m - 1)),
             tau_MTT * dvdt - (model.f - f_out),
             tau_MTT * dqdt - (model.m - (model.q / model.v.clamp(min=0.01)) * f_out),
         ],
@@ -464,7 +464,6 @@ def train(
         "other":  0e1,
     }
     amp_p = torch.distributions.beta.Beta(6, 2)
-    keys_to_skip = ["total"]
     loss_trace  = {key: [] for key in loss_weights.keys()}
     total_trace = {"total": []}
     # data = {}
@@ -517,9 +516,7 @@ def train(
         )
         optimal_combinatory = round(len(Bold_segments) / 2)
         data_params.update({"index_size": optimal_combinatory})
-        segments_index = torch.combinations(
-            torch.arange(len(Bold_segments)), r=optimal_combinatory
-        )
+        
         time_max = torch.ceil(
             torch.stack([i.max() for i in time_corrected]).max()
         ).to(dtype=torch.int32)
@@ -557,9 +554,9 @@ def train(
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        if "Bold_ode" in data_params:
-            index = training_data(data, num_points=30)
-            data_params.update({"index": index})
+        # if "Bold_ode" in data_params:
+        #     index = training_data(data, num_points=30)
+        #     data_params.update({"index": index})
         
         Balloon_params.update({
             "t": torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())

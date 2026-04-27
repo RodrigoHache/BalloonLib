@@ -9,8 +9,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from scipy.stats import gamma
-from typing import List, Optional, Tuple
-
 
 # ---------------------------------------------------------------------------
 # Module-level device / dtype (mirrors balloonpinnlib.py globals)

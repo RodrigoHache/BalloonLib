@@ -43,9 +43,9 @@ def demonstrate_basic_usage():
         scale_std=0.1
     ).to(device)
     
-    print(f"\nCreated FactorizedLinear layer:")
+    print("\nCreated FactorizedLinear layer:")
     print(f"  {layer}")
-    print(f"\nParameter shapes:")
+    print("\nParameter shapes:")
     print(f"  scale (s):     {layer.scale.shape}")
     print(f"  value (V):     {layer.value.shape}")
     print(f"  bias (b):      {layer.bias.shape if layer.bias is not None else None}")
@@ -55,7 +55,7 @@ def demonstrate_basic_usage():
     x = torch.randn(batch_size, 10, device=device)
     y = layer(x)
     
-    print(f"\nForward pass:")
+    print("\nForward pass:")
     print(f"  Input shape:  {x.shape}")
     print(f"  Output shape: {y.shape}")
     
@@ -63,7 +63,7 @@ def demonstrate_basic_usage():
     exp_scale = torch.exp(layer.scale)
     reconstructed_weight = layer.value * exp_scale.unsqueeze(0)
     
-    print(f"\nWeight factorization check:")
+    print("\nWeight factorization check:")
     print(f"  Original V mean: {layer.value.mean().item():.6f}")
     print(f"  exp(s) mean:     {exp_scale.mean().item():.6f}")
     print(f"  W = exp(s)*V mean: {reconstructed_weight.mean().item():.6f}")
@@ -84,7 +84,7 @@ def compare_with_standard_linear():
     factorized = FactorizedLinear(in_feat, out_feat, bias=True).to(device)
     standard = nn.Linear(in_feat, out_feat, bias=True).to(device)
     
-    print(f"\nParameter count comparison:")
+    print("\nParameter count comparison:")
     factorized_params = sum(p.numel() for p in factorized.parameters())
     standard_params = sum(p.numel() for p in standard.parameters())
     
@@ -93,7 +93,7 @@ def compare_with_standard_linear():
     print(f"  Difference: {factorized_params - standard_params} parameters")
     print(f"  Extra parameters: scale vector (out_features = {out_feat})")
     
-    print(f"\nParameter breakdown:")
+    print("\nParameter breakdown:")
     print(f"  Standard:   W ({in_feat}×{out_feat}) + b ({out_feat}) = {in_feat*out_feat + out_feat}")
     print(f"  Factorized: s ({out_feat}) + V ({in_feat}×{out_feat}) + b ({out_feat}) = {out_feat + in_feat*out_feat + out_feat}")
     
@@ -102,7 +102,7 @@ def compare_with_standard_linear():
     y_factorized = factorized(x)
     y_standard = standard(x)
     
-    print(f"\nOutput shapes:")
+    print("\nOutput shapes:")
     print(f"  Standard:   {y_standard.shape}")
     print(f"  Factorized: {y_factorized.shape}")
 
@@ -121,19 +121,19 @@ def test_gradient_flow():
     loss = y.sum()
     loss.backward()
     
-    print(f"\nGradient check:")
+    print("\nGradient check:")
     print(f"  scale.grad exists: {layer.scale.grad is not None}")
     print(f"  value.grad exists: {layer.value.grad is not None}")
     print(f"  bias.grad exists:  {layer.bias.grad is not None}")
     
     if layer.scale.grad is not None:
-        print(f"\n  scale.grad stats:")
+        print("\n  scale.grad stats:")
         print(f"    Mean: {layer.scale.grad.mean().item():.6e}")
         print(f"    Std:  {layer.scale.grad.std().item():.6e}")
         print(f"    Max:  {layer.scale.grad.max().item():.6e}")
     
     if layer.value.grad is not None:
-        print(f"\n  value.grad stats:")
+        print("\n  value.grad stats:")
         print(f"    Mean: {layer.value.grad.mean().item():.6e}")
         print(f"    Std:  {layer.value.grad.std().item():.6e}")
         print(f"    Max:  {layer.value.grad.max().item():.6e}")
@@ -179,15 +179,15 @@ def demonstrate_pinn_network():
     pinn_rwf = SimplePINN(use_rwf=True).to(device)
     pinn_standard = SimplePINN(use_rwf=False).to(device)
     
-    print(f"\nNetwork architecture:")
-    print(f"  Input: 1D (time)")
-    print(f"  Hidden: 32 → 64 → 32")
-    print(f"  Output: 1D")
+    print("\nNetwork architecture:")
+    print("  Input: 1D (time)")
+    print("  Hidden: 32 → 64 → 32")
+    print("  Output: 1D")
     
     rwf_params = sum(p.numel() for p in pinn_rwf.parameters())
     std_params = sum(p.numel() for p in pinn_standard.parameters())
     
-    print(f"\nParameter counts:")
+    print("\nParameter counts:")
     print(f"  Standard PINN: {std_params} parameters")
     print(f"  RWF PINN:      {rwf_params} parameters")
     print(f"  Additional:    {rwf_params - std_params} scale parameters")
@@ -197,7 +197,7 @@ def demonstrate_pinn_network():
     output_rwf = pinn_rwf(t)
     output_std = pinn_standard(t)
     
-    print(f"\nForward pass test:")
+    print("\nForward pass test:")
     print(f"  Input shape:        {t.shape}")
     print(f"  RWF output shape:   {output_rwf.shape}")
     print(f"  Std output shape:   {output_std.shape}")
@@ -229,11 +229,11 @@ def verify_initialization():
     exp_scales = torch.stack(exp_scale_values)
     
     print(f"\nScale factor (s) statistics over {n_samples} initializations:")
-    print(f"  Expected: s ~ N(μ=1.0, σ=0.1)")
+    print(f"  Expected: s ~ N(mu=1.0, sigma=0.1)")
     print(f"  Observed mean: {scales.mean().item():.4f}")
     print(f"  Observed std:  {scales.std().item():.4f}")
     
-    print(f"\nexp(s) statistics:")
+    print("\nexp(s) statistics:")
     print(f"  Mean: {exp_scales.mean().item():.4f} (expected ≈ e^(μ+σ²/2) = {torch.exp(torch.tensor(1.0 + 0.1**2/2)).item():.4f})")
     print(f"  Std:  {exp_scales.std().item():.4f}")
     print(f"  Min:  {exp_scales.min().item():.4f}")
@@ -243,7 +243,7 @@ def verify_initialization():
     layer = FactorizedLinear(in_feat, out_feat)
     reconstructed_W = layer.value * torch.exp(layer.scale).unsqueeze(0)
     
-    print(f"\nReconstructed weight (W = exp(s) * V) statistics:")
+    print("\nReconstructed weight (W = exp(s) * V) statistics:")
     print(f"  Shape: {reconstructed_W.shape}")
     print(f"  Mean:  {reconstructed_W.mean().item():.6f}")
     print(f"  Std:   {reconstructed_W.std().item():.4f}")
