@@ -14,6 +14,7 @@ from typing import List
 # Automatic differentiation
 # ---------------------------------------------------------------------------
 
+
 def dfdt(signal: torch.Tensor, arg: torch.Tensor) -> torch.Tensor:
     """Compute the derivative of ``signal`` with respect to ``arg`` via autograd.
 
@@ -48,20 +49,19 @@ def dfdt(signal: torch.Tensor, arg: torch.Tensor) -> torch.Tensor:
         outputs=sig,
         inputs=arg,
         grad_outputs=torch.ones_like(sig),
-        create_graph=True,   # required for higher-order derivatives
+        create_graph=True,  # required for higher-order derivatives
         allow_unused=True,
     )[0]
 
     if ds_dt is None:
-        raise ValueError(
-            "d(signal)/d(arg) is None — check that arg is in the computation graph."
-        )
+        raise ValueError("d(signal)/d(arg) is None — check that arg is in the computation graph.")
     return ds_dt.requires_grad_()
 
 
 # ---------------------------------------------------------------------------
 # Temporal segmentation
 # ---------------------------------------------------------------------------
+
 
 def segment_temporal_residuals(residual: torch.Tensor, n_segments: int) -> List[torch.Tensor]:
     """Split ODE residuals into temporal segments.
@@ -126,21 +126,20 @@ def compute_temporal_weights(
         Weights, shape ``(n_segments,)``.
     """
     dev = segment_losses.device if device is None else device
-    
+
     cumsum_losses = torch.cumsum(segment_losses, dim=0)
 
-    # Shift right by one: weights[i] = exp(-ε * cumsum[i-1]), weights[0] = 1                                 
-    exponents = torch.cat([
-        torch.zeros(1, device=dev, dtype=segment_losses.dtype),                                              
-        cumsum_losses[:-1]
-      ])                                                     # (n_segments,)                                   
-   
-    return torch.exp(-epsilon * exponents) 
+    # Shift right by one: weights[i] = exp(-ε * cumsum[i-1]), weights[0] = 1
+    exponents = torch.cat(
+        [torch.zeros(1, device=dev, dtype=segment_losses.dtype), cumsum_losses[:-1]]
+    )  # (n_segments,)
+
+    return torch.exp(-epsilon * exponents)
 
 
 def weighted_temporal_ode_loss(
     residual: torch.Tensor,
-    meFn = nn.MSELoss(),
+    meFn=nn.MSELoss(),
     n_segments: int = 10,
     epsilon: float = 1.0,
     normalize_weights: bool = True,
@@ -174,9 +173,7 @@ def weighted_temporal_ode_loss(
     """
     segments = segment_temporal_residuals(residual, n_segments)
 
-    segment_losses = torch.stack([
-        meFn(seg, torch.zeros_like(seg)) for seg in segments
-    ])
+    segment_losses = torch.stack([meFn(seg, torch.zeros_like(seg)) for seg in segments])
 
     weights = compute_temporal_weights(segment_losses, epsilon, device)
 

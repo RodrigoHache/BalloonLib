@@ -24,6 +24,7 @@ import torch.nn.functional as F
 # Fourier Feature Mapping
 # ---------------------------------------------------------------------------
 
+
 class FourierFeatureMapping(nn.Module):
     """Fourier Feature Mapping for coordinate-based neural networks.
 
@@ -105,6 +106,7 @@ class FourierFeatureMapping(nn.Module):
 # ---------------------------------------------------------------------------
 # Random Weight Factorization linear layer
 # ---------------------------------------------------------------------------
+
 
 class FactorizedLinear(nn.Module):
     """Linear layer with Random Weight Factorization (RWF).
@@ -227,6 +229,7 @@ class FactorizedLinear(nn.Module):
 # ---------------------------------------------------------------------------
 # Utility: swap nn.Linear → FactorizedLinear in an existing model
 # ---------------------------------------------------------------------------
+
 
 def replace_linear_with_factorized(
     module: nn.Module,

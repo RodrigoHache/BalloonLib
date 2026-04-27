@@ -23,41 +23,41 @@ dtype = torch.float32
 # ---------------------------------------------------------------------------
 def tensor2np(tensor):
     """Turns a tensor into an numpy array
-    
+
     Parameter
     ---------
     tensor : torch.Tensor
         Data to turn into a numpy.array
-    
+
     Returns
     -------
     transformed : numpy.array
         Transformed array of the same shape as ``tensor``.
     """
-    return tensor.detach().cpu().numpy()  
+    return tensor.detach().cpu().numpy()
+
 
 def np2tensor(vector):
-    """Turns an array into an torch.Tensor 
-    
+    """Turns an array into an torch.Tensor
+
     Parameter
     ---------
     tensor : numpy.array
         data to transform to torch.Tensor
-    
+
     Returns
     -------
     transformed : torch.Tensor
         Data turned into a numpy.array
     """
-    transformed = torch.tensor(
-    vector, requires_grad=True, dtype=torch.float32
-        ).view(-1, 1)
+    transformed = torch.tensor(vector, requires_grad=True, dtype=torch.float32).view(-1, 1)
     return transformed
 
 
 # ---------------------------------------------------------------------------
 # Domain scaling
 # ---------------------------------------------------------------------------
+
 
 def scale_domains(
     data: torch.Tensor | np.ndarray,
@@ -118,7 +118,10 @@ def scale_domains(
 
     # Case 1: Global transform (single domain pair for the whole tensor)
     if dim_to_transform is None:
-        if not (all(isinstance(x, (int, float)) for x in original_domains) and len(original_domains) == 2):
+        if not (
+            all(isinstance(x, (int, float)) for x in original_domains)
+            and len(original_domains) == 2
+        ):
             raise ValueError(
                 f"original_domains must be an ordered (min, max) pair. Got {original_domains}"
             )
@@ -130,7 +133,9 @@ def scale_domains(
             raise ValueError(f"Original domain range is zero: [{min_o}, {max_o}]")
 
         scale = (max_n - min_n) / (max_o - min_o)
-        transformed = (min_n * (max_o - data_tensor) + max_n * (data_tensor - min_o)) / (max_o - min_o)
+        transformed = (min_n * (max_o - data_tensor) + max_n * (data_tensor - min_o)) / (
+            max_o - min_o
+        )
         return transformed, torch.tensor([scale])
 
     # Case 2: Per-slice transform along one dimension
@@ -157,8 +162,7 @@ def scale_domains(
         )
     if not isinstance(new_domains, (list, tuple)):
         raise ValueError(
-            f"new_domains must be a list or tuple of (min, max) pairs. "
-            f"Got {type(new_domains)}"
+            f"new_domains must be a list or tuple of (min, max) pairs. Got {type(new_domains)}"
         )
 
     num_slices = data_tensor.shape[dim_to_transform]
@@ -171,13 +175,9 @@ def scale_domains(
         new = new_domains[slice_idx]
 
         if not isinstance(orig, (tuple, list)) or len(orig) != 2:
-            raise ValueError(
-                f"original_domains[{slice_idx}] must be a (min, max) pair, got {orig}"
-            )
+            raise ValueError(f"original_domains[{slice_idx}] must be a (min, max) pair, got {orig}")
         if not isinstance(new, (tuple, list)) or len(new) != 2:
-            raise ValueError(
-                f"new_domains[{slice_idx}] must be a (min, max) pair, got {new}"
-            )
+            raise ValueError(f"new_domains[{slice_idx}] must be a (min, max) pair, got {new}")
 
         min_o, max_o = orig
         min_n, max_n = new
@@ -201,9 +201,14 @@ def scale_domains(
 # HRF factory
 # ---------------------------------------------------------------------------
 
+
 def DoubleGamma(
-    A1: float, alpha1: float, beta1: float,
-    A2: float, alpha2: float, beta2: float,
+    A1: float,
+    alpha1: float,
+    beta1: float,
+    A2: float,
+    alpha2: float,
+    beta2: float,
 ):
     """Return a Double-Gamma hemodynamic response function (HRF).
 
@@ -230,14 +235,16 @@ def DoubleGamma(
     callable
         A function ``f(t) -> float`` evaluating the HRF at time *t*.
     """
-    return lambda t: (A1 * gamma.pdf(t, a=alpha1, scale=(1 / beta1))) - (
-        A2 * gamma.pdf(t, a=alpha2, scale=(1 / beta2))
+    return lambda t: (
+        (A1 * gamma.pdf(t, a=alpha1, scale=(1 / beta1)))
+        - (A2 * gamma.pdf(t, a=alpha2, scale=(1 / beta2)))
     )
 
 
 # ---------------------------------------------------------------------------
 # Temporal matching
 # ---------------------------------------------------------------------------
+
 
 @torch.compile()
 def timeBall(time_tensor1, time_tensor2, delta=0.005):
@@ -290,6 +297,7 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
 # 1-D Convolution
 # ---------------------------------------------------------------------------
 
+
 @torch.compile()
 def pytorch_convolve(signal, kernel, mode="full", flip=False):
     """1-D convolution using :func:`torch.nn.functional.conv1d`.
@@ -333,6 +341,7 @@ def pytorch_convolve(signal, kernel, mode="full", flip=False):
 # Stimulus–HRF convolution
 # ---------------------------------------------------------------------------
 
+
 def tofit(stim, hrf, time_max, dt=0.01):
     """Convolve stimulus with HRF to produce a predicted BOLD signal.
 
@@ -355,8 +364,8 @@ def tofit(stim, hrf, time_max, dt=0.01):
         Corresponding time vector.
 
     """
-    if isinstance(time_max, torch.Tensor):                                                                    
+    if isinstance(time_max, torch.Tensor):
         time_max = float(time_max.detach())
     test_time = torch.arange(0, time_max, dt)
-    test = pytorch_convolve(stim, hrf, mode="full", flip=True)[:test_time.size(0)]
+    test = pytorch_convolve(stim, hrf, mode="full", flip=True)[: test_time.size(0)]
     return test, test_time

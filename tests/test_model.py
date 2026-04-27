@@ -1,6 +1,7 @@
 """
 Smoke tests for the Multihead PINN model.
 """
+
 import pytest
 import torch
 
@@ -10,6 +11,7 @@ from balloonlib.balloonpinnlib import Multihead
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def model_no_impulse():
@@ -43,6 +45,7 @@ def small_t_stim(small_t):
 # Instantiation
 # ---------------------------------------------------------------------------
 
+
 class TestMultiheadInstantiation:
     def test_no_impulse_creates(self):
         m = Multihead(impulse=False)
@@ -60,6 +63,7 @@ class TestMultiheadInstantiation:
 # ---------------------------------------------------------------------------
 # Forward pass
 # ---------------------------------------------------------------------------
+
 
 class TestMultiheadForward:
     def test_forward_no_impulse_shape(self, model_no_impulse, small_t):
@@ -96,6 +100,7 @@ class TestMultiheadForward:
 # ---------------------------------------------------------------------------
 # Gradient flow
 # ---------------------------------------------------------------------------
+
 
 class TestGradientFlow:
     def test_loss_has_grad(self, model_no_impulse, small_t):

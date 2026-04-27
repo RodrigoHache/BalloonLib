@@ -30,10 +30,10 @@ class Multihead(nn.Module):
         Core2NV: bool = False,
         mode: str = "grad",
         impulse: bool = False,
-        act= nn.Softmax(dim=1),
+        act=nn.Softmax(dim=1),
         nv_fn: tuple = (nn.Softplus(), nn.Softplus()),
         core_fn: tuple = (nn.Softplus(), nn.Softplus()),
-        dtype = torch.float32,
+        dtype=torch.float32,
         ic_clamp: dict = {},
         use_fourier: bool = False,
         fourier_mapping_size: int = 9,
@@ -111,16 +111,24 @@ class Multihead(nn.Module):
 
         # Balloon model constants
         self.DEFAULT_PARAMS = {
-            "E_0"   :   torch.tensor(0.32, dtype=dtype), # nn.Parameter(torch.tensor(0.32, dtype=dtype)),
-            "V_0"   :   torch.tensor(0.03, dtype=dtype), # nn.Parameter(torch.tensor(0.03, dtype=dtype)),
-            "TE"    :   torch.tensor(0.06, dtype=dtype), # nn.Parameter(torch.tensor(0.06, dtype=dtype)),
-            "O_0"   :   torch.tensor(40.3, dtype=dtype), # nn.Parameter(torch.tensor(40.3, dtype=dtype)),
-            "r_0"   :   torch.tensor(25, dtype=dtype), # nn.Parameter(torch.tensor(25, dtype=dtype)),
-            "epsilon":  torch.tensor(1.43, dtype=dtype), # nn.Parameter(torch.tensor(1.43, dtype=dtype)),
+            "E_0": torch.tensor(
+                0.32, dtype=dtype
+            ),  # nn.Parameter(torch.tensor(0.32, dtype=dtype)),
+            "V_0": torch.tensor(
+                0.03, dtype=dtype
+            ),  # nn.Parameter(torch.tensor(0.03, dtype=dtype)),
+            "TE": torch.tensor(0.06, dtype=dtype),  # nn.Parameter(torch.tensor(0.06, dtype=dtype)),
+            "O_0": torch.tensor(
+                40.3, dtype=dtype
+            ),  # nn.Parameter(torch.tensor(40.3, dtype=dtype)),
+            "r_0": torch.tensor(25, dtype=dtype),  # nn.Parameter(torch.tensor(25, dtype=dtype)),
+            "epsilon": torch.tensor(
+                1.43, dtype=dtype
+            ),  # nn.Parameter(torch.tensor(1.43, dtype=dtype)),
         }
 
         # Grubb's exponent (fixed)
-        self.alpha = nn.Parameter(torch.tensor(0.4, dtype=dtype)) #, 0.4 #
+        self.alpha = nn.Parameter(torch.tensor(0.4, dtype=dtype))  # , 0.4 #
 
         # Davis (1998) BOLD model parameters
         self.Davis_params = {
@@ -135,22 +143,30 @@ class Multihead(nn.Module):
         if self.use_fourier:
             if self.multi_scale_fourier:
                 self.fourier_low = FourierFeatureMapping(
-                    base_input_dim, fourier_mapping_size // 3,
-                    scale=fourier_scale * 0.5, learnable=fourier_learnable,
+                    base_input_dim,
+                    fourier_mapping_size // 3,
+                    scale=fourier_scale * 0.5,
+                    learnable=fourier_learnable,
                 )
                 self.fourier_mid = FourierFeatureMapping(
-                    base_input_dim, fourier_mapping_size // 3,
-                    scale=fourier_scale, learnable=fourier_learnable,
+                    base_input_dim,
+                    fourier_mapping_size // 3,
+                    scale=fourier_scale,
+                    learnable=fourier_learnable,
                 )
                 self.fourier_high = FourierFeatureMapping(
-                    base_input_dim, fourier_mapping_size // 3,
-                    scale=fourier_scale * 2.0, learnable=fourier_learnable,
+                    base_input_dim,
+                    fourier_mapping_size // 3,
+                    scale=fourier_scale * 2.0,
+                    learnable=fourier_learnable,
                 )
                 first_layer_input = 3 * 2 * (fourier_mapping_size // 3)
             else:
                 self.fourier_mapping = FourierFeatureMapping(
-                    base_input_dim, fourier_mapping_size,
-                    scale=fourier_scale, learnable=fourier_learnable,
+                    base_input_dim,
+                    fourier_mapping_size,
+                    scale=fourier_scale,
+                    learnable=fourier_learnable,
                 )
                 first_layer_input = 2 * fourier_mapping_size
         else:
@@ -178,7 +194,7 @@ class Multihead(nn.Module):
             }
             self.nv_final_layers = nn.ModuleList(
                 # [FactorizedLinear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
-                    [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
+                [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
             )
             self.Core = nn.ModuleList(
                 # [FactorizedLinear(257 + i, 1, bias=True, dtype=dtype) for i in range(2)]
@@ -199,7 +215,7 @@ class Multihead(nn.Module):
     def epsilon(self):
         """Clamped intra/extravascular BOLD ratio (non-negative)."""
         return torch.clamp(self.DEFAULT_PARAMS["epsilon"], min=0)
-    
+
     def init_nn_params(self):
         """Initialise network weights using Xavier/Glorot uniform initialisation.
 
@@ -209,6 +225,7 @@ class Multihead(nn.Module):
         Softplus-activated outputs start at the physiological baseline of 1.0,
         matching the initial condition target for f, m, v, and q.
         """
+
         def init_weights(m):
             if isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight)
@@ -265,40 +282,38 @@ class Multihead(nn.Module):
             Final hidden representation from the shared backbone, shape ``(N, 512)``.
         """
         x_encoded = self.encode_input(x)
-        
+
         if self.mode == "detach":
             with torch.no_grad():
                 out = self.Sequential(x_encoded)
         else:
-        
             out = self.Sequential(x_encoded)
-        
-        out_half = out.shape[1]//2
+
+        out_half = out.shape[1] // 2
         outi = [out[:, :out_half], out[:, out_half:]]
-        
+
         # nns = [0,0] means f & m from outi[0]
-        # nns = [0,1] means f from outi[0] & m from outi[1] 
-        self.f, self.m = [ 
+        # nns = [0,1] means f from outi[0] & m from outi[1]
+        self.f, self.m = [
             self.nv_fn[i](self.nv_final_layers[i](outi[self.nns[i]])) for i in range(2)
         ]
 
         if self.ic_clamp:
+
             def soft_clamp(x, center=1.0, half_width=self.ic_clamp["band"]):
                 """Differentiable symmetric clamp around *center* ± *half_width*."""
                 return center + half_width * torch.tanh((x - center) / half_width)
 
             mask = torch.zeros(self.f.shape[0], dtype=torch.bool, device=self.f.device)
-            mask[:self.ic_clamp["set"]] = True                                         
+            mask[: self.ic_clamp["set"]] = True
             self.f = torch.where(mask.unsqueeze(1), soft_clamp(self.f), self.f)
-            self.m = torch.where(mask.unsqueeze(1), soft_clamp(self.m), self.m) 
+            self.m = torch.where(mask.unsqueeze(1), soft_clamp(self.m), self.m)
 
         # if self.Core2NV True:
         #   nns = [0,1] -> v_arg = [outi[0] ,f]
         # else: v_arg = [outi[1] ,f]
         v_arg = torch.cat((outi[1 - self.nns[1]], self.f), axis=1)
-        q_arg = torch.cat(
-            (outi[1], self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1
-            )
+        q_arg = torch.cat((outi[1], self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
         core_arg = [v_arg, q_arg]
 
         self.v, self.q = [self.core_fn[i](self.Core[i](core_arg[i])) for i in range(2)]
@@ -306,11 +321,11 @@ class Multihead(nn.Module):
         output = torch.cat((self.f, self.m, self.v, self.q), axis=1)
         return output, out
 
-    #@torch.compile
+    # @torch.compile
     def fout(
         self,
         v: torch.Tensor = None,
-        alpha = None,
+        alpha=None,
         tau_m: float = 20,
         dvdt: torch.Tensor = None,
     ) -> torch.Tensor:
@@ -341,10 +356,10 @@ class Multihead(nn.Module):
             dvdt = torch.zeros_like(v)
         else:
             dvdt = dvdt.squeeze() if dvdt.ndim >= 2 else dvdt
-        
-        if alpha is None: 
+
+        if alpha is None:
             alpha = self.alpha
-        
+
         v_safe = v.clamp(min=1e-8)
         return (torch.exp(torch.log(v_safe) / alpha) + (tau_m * dvdt)).view(-1, 1)
 
@@ -381,14 +396,14 @@ class Multihead(nn.Module):
             predict_q = self.q
 
         p = {**self.DEFAULT_PARAMS, **(params or {})}
-        
+
         self.k_1 = (1 - p["V_0"]) * 4.3 * p["O_0"] * p["E_0"] * p["TE"]
         self.k_2 = 2.0 * p["E_0"]
         self.k_3 = 1.0 - self.epsilon
-        
+
         if not linear:
             return p["V_0"] * (
-                  self.k_1 * (1.0 - predict_q)
+                self.k_1 * (1.0 - predict_q)
                 + self.k_2 * (1.0 - predict_q / predict_v)
                 + self.k_3 * (1.0 - predict_v)
             )
@@ -437,7 +452,7 @@ class Multihead(nn.Module):
         self.k_1 = (1 - p["V_0"]) * 4.3 * p["O_0"] * p["E_0"] * p["TE"]
         self.k_2 = 2.0 * p["E_0"]
         self.k_3 = 1.0 - self.epsilon
-        
+
         if v is None:
             v = self.v.squeeze() if self.v.ndim >= 2 else self.v
         if q is None:
@@ -454,19 +469,13 @@ class Multihead(nn.Module):
 
         if not linear:
             return (
-                -p["V_0"] * (
-                    self.k_1 * dq
-                    + self.k_2 * ((v * dq - q * dv) / torch.pow(v, 2))
-                    + self.k_3 * dv
-                )
+                -p["V_0"]
+                * (self.k_1 * dq + self.k_2 * ((v * dq - q * dv) / torch.pow(v, 2)) + self.k_3 * dv)
             ).reshape(shape)
         else:
-            return (
-                -p["V_0"] * (
-                    (self.k_1 + self.k_2) * dq
-                    + (self.k_3 - self.k_2) * dv
-                )
-            ).reshape(shape)
+            return (-p["V_0"] * ((self.k_1 + self.k_2) * dq + (self.k_3 - self.k_2) * dv)).reshape(
+                shape
+            )
 
     def hDavis(
         self,
@@ -501,7 +510,9 @@ class Multihead(nn.Module):
         f_safe = f.clamp(min=1e-8)
         m_safe = m.clamp(min=1e-8)
         exp_fm = alpha - p["beta"]
-        return p["A"] * (1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * p["beta"]))
+        return p["A"] * (
+            1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * p["beta"])
+        )
 
     def dhDavis(
         self,

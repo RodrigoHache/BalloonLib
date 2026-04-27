@@ -17,8 +17,8 @@ from balloonlib.data import segmentData, experimental_stims
 # ---------------------------------------------------------------------------
 
 # Base hues for each dataset (HSL hue in [0, 1])
-_DATASET_HUES = [0.60, 0.08]          # blue-ish, orange-ish
-_SATURATION   = 0.85
+_DATASET_HUES = [0.60, 0.08]  # blue-ish, orange-ish
+_SATURATION = 0.85
 _LIGHTNESS_LEVELS = [0.30, 0.50, 0.68]  # dark → light for triplets 0, 1, 2
 
 
@@ -54,6 +54,7 @@ def _palette(n_datasets: int, n_triplets_per_dataset: int) -> list[list[tuple]]:
 # _to_numpy
 # ---------------------------------------------------------------------------
 
+
 def _to_numpy(data) -> np.ndarray:
     """Convert tensor or array to a 2-D numpy array (n_signals, signal_length)."""
     if isinstance(data, torch.Tensor):
@@ -67,9 +68,7 @@ def _to_numpy(data) -> np.ndarray:
         return arr.reshape(1, -1)
     if arr.ndim == 2:
         return arr if arr.shape[0] <= arr.shape[1] else arr.T
-    raise TypeError(
-        f"Expected 1-D or 2-D data, got shape {arr.shape}."
-    )
+    raise TypeError(f"Expected 1-D or 2-D data, got shape {arr.shape}.")
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +76,10 @@ def _to_numpy(data) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 _Y_LIMITS: dict[str, tuple[float, float]] = {
-    "f":   (0.970, 1.165),
-    "m":   (0.970, 1.165),
-    "v":   (0.995, 1.025),
-    "q":   (0.995, 1.025),
+    "f": (0.970, 1.165),
+    "m": (0.970, 1.165),
+    "v": (0.995, 1.025),
+    "q": (0.995, 1.025),
     "hrf": (-0.0045, 0.010),
 }
 
@@ -155,18 +154,20 @@ def plotSignals(
 
     # ── Grid mode setup ───────────────────────────────────────────────────────
     if grid_mode == "11x11":
-        x        = torch.arange(0.00, 1.1, 0.1)
-        w_Raws   = torch.cartesian_prod(x, x.flip(dims=(0,)))  # (121, 2)
-        n_rows, n_cols   = 11, 11
-        default_figsize  = (25, 25)
+        x = torch.arange(0.00, 1.1, 0.1)
+        w_Raws = torch.cartesian_prod(x, x.flip(dims=(0,)))  # (121, 2)
+        n_rows, n_cols = 11, 11
+        default_figsize = (25, 25)
+
         def title_fmt(coord):
             return f"({coord[0]:.1f}, {coord[1]:.1f})"
 
     elif grid_mode == "2x5":
-        p        = torch.arange(0.00, 1.0, 0.1)               # 10 values: 0.0 … 0.9
-        w_Raws   = torch.stack([p, 1 - p], dim=1)             # (10, 2)
-        n_rows, n_cols   = 2, 5
-        default_figsize  = (18, 7)
+        p = torch.arange(0.00, 1.0, 0.1)  # 10 values: 0.0 … 0.9
+        w_Raws = torch.stack([p, 1 - p], dim=1)  # (10, 2)
+        n_rows, n_cols = 2, 5
+        default_figsize = (18, 7)
+
         def title_fmt(coord):
             return f"p={coord[0]:.1f}"
 
@@ -180,7 +181,7 @@ def plotSignals(
 
     # ── Palette & y-limits ────────────────────────────────────────────────────
     n_datasets = len(datasets)
-    n_triplets  = max(len(d) for d in datasets)
+    n_triplets = max(len(d) for d in datasets)
     palette = _palette(n_datasets, n_triplets)
 
     ylim_map = {**_Y_LIMITS, **(custom_ylim or {})}
@@ -200,7 +201,7 @@ def plotSignals(
         if isinstance(val, torch.Tensor):
             val = val.detach().cpu().numpy()
         arr = np.asarray(val)
-        if arr.ndim == 0:               # plain scalar
+        if arr.ndim == 0:  # plain scalar
             return float(arr)
         if cell_idx < len(arr):
             return float(arr[cell_idx])
@@ -238,21 +239,22 @@ def plotSignals(
 
             # One DataFrame row per (cell_idx, replicate): value = val[cell_idx]
             if _has_metrics:
-
                 for cell_idx in range(min(n_signals, n_cells)):
                     d_rec = _get_at(_raw_rec, cell_idx)
                     d_cmp = _get_at(_raw_cmp, cell_idx)
                     if d_rec is not None or d_cmp is not None:
                         coord = w_Raws[cell_idx].numpy() if cell_idx < len(w_Raws) else [None, None]
-                        df_rows.append({
-                            "cell_idx":         cell_idx,
-                            "p":                float(coord[0]) if coord[0] is not None else None,
-                            "1-p":              float(coord[1]) if coord[1] is not None else None,
-                            "dataset":          dataset_labels[ds_idx],
-                            "replicate":        triplet_key,
-                            "d_reconstruction": d_rec,
-                            "d_comparison":     d_cmp,
-                        })
+                        df_rows.append(
+                            {
+                                "cell_idx": cell_idx,
+                                "p": float(coord[0]) if coord[0] is not None else None,
+                                "1-p": float(coord[1]) if coord[1] is not None else None,
+                                "dataset": dataset_labels[ds_idx],
+                                "replicate": triplet_key,
+                                "d_reconstruction": d_rec,
+                                "d_comparison": d_cmp,
+                            }
+                        )
 
             # Plot
             for cell_idx, ax in enumerate(axes.ravel()):
@@ -268,15 +270,21 @@ def plotSignals(
 
     # ── Annotate each cell: mean of val[cell_idx] across replicates ───────────
     # Plot N annotation: mean = (db['0']['metric'][N] + db['1']['metric'][N] + ...) / n_replicates
-    _annot_y = [0.04, 0.22]   # Dataset 0 near bottom, Dataset 1 just above it
+    _annot_y = [0.04, 0.22]  # Dataset 0 near bottom, Dataset 1 just above it
     for cell_idx, ax in enumerate(axes.ravel()):
         if cell_idx >= n_cells:
             break
         for ds_idx, dataset in enumerate(datasets):
-            d_cmps_at = [_get_at(v["d_comparison"],     cell_idx) for v in dataset.values()
-                         if "d_comparison"     in v and _get_at(v["d_comparison"],     cell_idx) is not None]
-            d_recs_at = [_get_at(v["d_reconstruction"], cell_idx) for v in dataset.values()
-                         if "d_reconstruction" in v and _get_at(v["d_reconstruction"], cell_idx) is not None]
+            d_cmps_at = [
+                _get_at(v["d_comparison"], cell_idx)
+                for v in dataset.values()
+                if "d_comparison" in v and _get_at(v["d_comparison"], cell_idx) is not None
+            ]
+            d_recs_at = [
+                _get_at(v["d_reconstruction"], cell_idx)
+                for v in dataset.values()
+                if "d_reconstruction" in v and _get_at(v["d_reconstruction"], cell_idx) is not None
+            ]
             if not d_cmps_at and not d_recs_at:
                 continue
             mean_cmp = float(np.mean(d_cmps_at)) if d_cmps_at else None
@@ -284,7 +292,7 @@ def plotSignals(
             ann_color = palette[ds_idx][0]
             msg = (
                 f"{dataset_labels[ds_idx]}\n"
-                + (f"  HRF: {mean_cmp:.3e}"      if mean_cmp is not None else "")
+                + (f"  HRF: {mean_cmp:.3e}" if mean_cmp is not None else "")
                 + (f"\n  Bold: {mean_rec:.3e}" if mean_rec is not None else "")
             )
             ax.annotate(
@@ -351,16 +359,25 @@ def plotSignals(
     plt.show()
 
     # ── Build and return the summary DataFrame ────────────────────────────────
-    df = pd.DataFrame(df_rows, columns=[
-        "cell_idx", "p", "1-p", "dataset", "replicate",
-        "d_reconstruction", "d_comparison",
-    ])
+    df = pd.DataFrame(
+        df_rows,
+        columns=[
+            "cell_idx",
+            "p",
+            "1-p",
+            "dataset",
+            "replicate",
+            "d_reconstruction",
+            "d_comparison",
+        ],
+    )
     return df
 
 
 # ============================================================================
 # Migrated from balloonpinnlib.py
 # ============================================================================
+
 
 def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
     """Plot training loss traces on a two-panel figure.
@@ -481,7 +498,7 @@ def plot_balloon_fitting(
     Otherwise a simple 1 x 3 layout is used.
     """
     # Compute time points in original domain
-    
+
     t_plot, plot_scale = scale_domains(
         t_normalized.squeeze(),
         original_domains=t_normalized[[0, -1]].squeeze().tolist(),
@@ -489,7 +506,7 @@ def plot_balloon_fitting(
     )
     t_plot = tensor2np(t_plot)
     plot_scale = plot_scale.item()
-    
+
     # Prepare model inputs
     if hasattr(model, "impulse") and model.impulse:
         if stimulus is None:
@@ -502,7 +519,7 @@ def plot_balloon_fitting(
 
     if first_non_zero_index is None:
         first_non_zero_index = 0
-    
+
     model.eval()
     with torch.no_grad():
         pred, _ = model(inputs)
@@ -512,7 +529,7 @@ def plot_balloon_fitting(
         hrf_predict_linear = model.predictor(linear=True)
         hrf_pred_np = tensor2np(hrf_predict)
         hrf_pred_linear_np = tensor2np(hrf_predict_linear)
-    
+
     if show_bold_signal:
         fig = plt.figure(figsize=(14, 6), layout="constrained")
         gs = GridSpec(3, 4, figure=fig)
@@ -535,15 +552,31 @@ def plot_balloon_fitting(
         plt.suptitle(f"{title} - Iteration {iteration}")
     else:
         plt.suptitle(title)
-    
+
     # Subplot 0: f and m
     ax0.plot(t_plot, r_pred[:, 0], lw=1.5, alpha=0.7, label="PINN f_in")
     ax0.plot(t_plot, r_pred[:, 1], lw=1.5, alpha=0.7, label="PINN m")
-    if numerical_solutions is not None and "f" in numerical_solutions and "m" in numerical_solutions:
-        ax0.plot(t_plot, tensor2np(numerical_solutions["f"]), "--", lw=1,
-                 c="midnightblue", label="Numerical f_in")
-        ax0.plot(t_plot, tensor2np(numerical_solutions["m"]), "--", lw=1,
-                 c="midnightblue", label="Numerical m")
+    if (
+        numerical_solutions is not None
+        and "f" in numerical_solutions
+        and "m" in numerical_solutions
+    ):
+        ax0.plot(
+            t_plot,
+            tensor2np(numerical_solutions["f"]),
+            "--",
+            lw=1,
+            c="midnightblue",
+            label="Numerical f_in",
+        )
+        ax0.plot(
+            t_plot,
+            tensor2np(numerical_solutions["m"]),
+            "--",
+            lw=1,
+            c="midnightblue",
+            label="Numerical m",
+        )
     ax0t.axvline(x=t_normalized[first_non_zero_index].item(), color="orange", ls="-.")
     ax0.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
     ax0.axhline(y=1 + 1e-4, color="r", ls="--")
@@ -554,19 +587,37 @@ def plot_balloon_fitting(
     ax0.set_xlabel("PI time")
     ax0.set_title("f_in and m")
     new_tlims = t_normalized[0].item() + (np.array(ax0.get_xlim()) - t_plot[0]) / plot_scale
-    new_tticks = np.round(t_normalized[0].item() + (ax0.get_xticks() - t_plot[0]) / plot_scale, 2)[1:-1]
+    new_tticks = np.round(t_normalized[0].item() + (ax0.get_xticks() - t_plot[0]) / plot_scale, 2)[
+        1:-1
+    ]
     ax0t.set_xlabel("NN time")
     ax0t.set_xlim(new_tlims)
     ax0t.set_xticks(new_tticks)
-    
+
     # Subplot 1: v and q
     ax1.plot(t_plot, vq_pred[:, 0], lw=1.5, alpha=0.7, label="PINN v")
     ax1.plot(t_plot, vq_pred[:, 1], lw=1.5, alpha=0.7, label="PINN q")
-    if numerical_solutions is not None and "v" in numerical_solutions and "q" in numerical_solutions:
-        ax1.plot(t_plot, tensor2np(numerical_solutions["v"]), "--", lw=1,
-                 c="midnightblue", label="Numerical v")
-        ax1.plot(t_plot, tensor2np(numerical_solutions["q"]), "--", lw=1,
-                 c="midnightblue", label="Numerical q")
+    if (
+        numerical_solutions is not None
+        and "v" in numerical_solutions
+        and "q" in numerical_solutions
+    ):
+        ax1.plot(
+            t_plot,
+            tensor2np(numerical_solutions["v"]),
+            "--",
+            lw=1,
+            c="midnightblue",
+            label="Numerical v",
+        )
+        ax1.plot(
+            t_plot,
+            tensor2np(numerical_solutions["q"]),
+            "--",
+            lw=1,
+            c="midnightblue",
+            label="Numerical q",
+        )
     ax1.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
     ax1.axhline(y=1 + 1e-4, color="r", ls="--")
     ax1.axhline(y=1 - 1e-4, color="r", ls="--")
@@ -578,13 +629,19 @@ def plot_balloon_fitting(
     ax1t.set_xlabel("NN time")
     ax1t.set_xlim(new_tlims)
     ax1t.set_xticks(new_tticks)
-    
+
     # Subplot 2: HRF
     ax2.plot(t_plot, hrf_pred_np, lw=1.5, alpha=0.7, label="PINN HRF")
     ax2.plot(t_plot, hrf_pred_linear_np, lw=1.5, alpha=0.7, label="PINN HRF (linear)")
     if numerical_solutions is not None and "bold" in numerical_solutions:
-        ax2.plot(t_plot, tensor2np(numerical_solutions["bold"]), "--", lw=1,
-                 c="midnightblue", label="Numerical HRF")
+        ax2.plot(
+            t_plot,
+            tensor2np(numerical_solutions["bold"]),
+            "--",
+            lw=1,
+            c="midnightblue",
+            label="Numerical HRF",
+        )
     ax2.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
     ax2.axhline(y=1e-4, color="r", ls="--")
     ax2.axhline(y=-1e-4, color="r", ls="--")
@@ -596,7 +653,7 @@ def plot_balloon_fitting(
     ax2t.set_xlabel("NN time")
     ax2t.set_xlim(new_tlims)
     ax2t.set_xticks(new_tticks)
-    
+
     # Subplots 3 and 4: BOLD signal fitting (if requested)
     if show_bold_signal:
         if data_params is None:
@@ -606,13 +663,13 @@ def plot_balloon_fitting(
         Sti_Onsets = data_params.get("Sti_Onsets")
         TR = data_params.get("TR")
         stim_length = data_params.get("stim_length [seg]")
-        
+
         if any(x is None for x in [Bold_Signal, Sti_Onsets, TR, stim_length]):
             raise ValueError(
                 "data_params must contain 'Bold_Signal', 'Sti_Onsets', "
                 "'TR', and 'stim_length [seg]' keys"
             )
-        
+
         if "stimulus" in data_params and "stimulus_time" in data_params:
             stimulus_single = data_params["stimulus"]
             stimulus_time = data_params["stimulus_time"]
@@ -631,7 +688,7 @@ def plot_balloon_fitting(
             stimulus_single, hrf_predict, stimulus_time[-1].item() + 0.01
         )
         trial_time_np = tensor2np(trial_time)
-        
+
         if "Overallstim" in data_params and "Overall_stim_time" in data_params:
             Overall_stimuli = data_params["Overallstim"]
             Overall_stim_time = data_params["Overall_stim_time"]
@@ -649,20 +706,28 @@ def plot_balloon_fitting(
             hrf_predict,
             Overall_stim_time[-1].item() + 0.01,
         )
-        
+
         Bold_data_time = data_params.get("Bold_data_time")
         if Bold_data_time is not None:
             samples_index, _ = timeBall(Bold_data_time, Bold_pinn_time)
-            Bold_arr = Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
+            Bold_arr = (
+                Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
+            )
             offset = -np.mean(tensor2np(Overall_bold_pinn[samples_index]) - Bold_arr)
         else:
             offset = 0.0
 
-        ax3.plot(stimulus_time.cpu(), tensor2np(stimulus_single), alpha=0.7,
-                 color="green", label="Stimulus")
-        ax3.plot(trial_time_np, offset + tensor2np(single_trial_bold),
-                 alpha=0.7, label="Estimated BOLD")
-        
+        ax3.plot(
+            stimulus_time.cpu(),
+            tensor2np(stimulus_single),
+            alpha=0.7,
+            color="green",
+            label="Stimulus",
+        )
+        ax3.plot(
+            trial_time_np, offset + tensor2np(single_trial_bold), alpha=0.7, label="Estimated BOLD"
+        )
+
         if hasattr(Bold_Signal, "__len__"):
             time_bf_stim = data_params.get("TR", TR)
             Bold_segments, time_corrected = segmentData(
@@ -683,12 +748,16 @@ def plot_balloon_fitting(
         ax3.set_title("Estimated BOLD, single stimulus")
 
         if Bold_data_time is not None:
-            Bold_arr = Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
+            Bold_arr = (
+                Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
+            )
             ax4.scatter(tensor2np(Bold_data_time), Bold_arr, label="data")
-        ax4.plot(tensor2np(Bold_pinn_time), offset + tensor2np(Overall_bold_pinn),
-                 label="Estimated BOLD")
-        ax4.plot(tensor2np(Overall_stim_time), tensor2np(Overall_stimuli),
-                 label="Stimuli", color="green")
+        ax4.plot(
+            tensor2np(Bold_pinn_time), offset + tensor2np(Overall_bold_pinn), label="Estimated BOLD"
+        )
+        ax4.plot(
+            tensor2np(Overall_stim_time), tensor2np(Overall_stimuli), label="Stimuli", color="green"
+        )
         ax4.xaxis.set_minor_locator(MultipleLocator(2.5))
         ax4.legend(fontsize=10, loc="lower center", ncol=3)
         ax4.grid(visible=True, which="both")
@@ -698,7 +767,10 @@ def plot_balloon_fitting(
 
 
 def plot_weights(
-    weights_history, title, keys_to_skip, step_size: int = 1400,
+    weights_history,
+    title,
+    keys_to_skip,
+    step_size: int = 1400,
 ):
     """Plot adaptive loss weight traces over training iterations.
 
@@ -771,9 +843,7 @@ def plotHRFs(data):
     elif data.ndim == 1:
         data = data.reshape(1, -1)
     else:
-        raise TypeError(
-            "Several signals should be delivered using a order-2 tensor (matrix)"
-        )
+        raise TypeError("Several signals should be delivered using a order-2 tensor (matrix)")
 
     n_signals, signal_length = data.shape
 

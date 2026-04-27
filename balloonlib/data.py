@@ -15,6 +15,7 @@ import torch
 # Training index sampler
 # ---------------------------------------------------------------------------
 
+
 def training_data(input_data: dict, num_points: int, random: bool = False):
     """Sample indices from a dataset dictionary.
 
@@ -42,9 +43,7 @@ def training_data(input_data: dict, num_points: int, random: bool = False):
 
     if num_points is not None:
         if num_points > max_len:
-            raise ValueError(
-                "num_points must not exceed the length of input_data."
-            )
+            raise ValueError("num_points must not exceed the length of input_data.")
 
     if random:
         index = torch.randint(low=1, high=max_len, size=(num_points,), dtype=int)
@@ -59,6 +58,7 @@ def training_data(input_data: dict, num_points: int, random: bool = False):
 # ---------------------------------------------------------------------------
 # BOLD normalisation
 # ---------------------------------------------------------------------------
+
 
 def normFn(data, ref=None, step=1.75, first_stim=None, alt_ref=None):
     """Normalise BOLD signal data as a percentage change from baseline.
@@ -107,7 +107,7 @@ def normFn(data, ref=None, step=1.75, first_stim=None, alt_ref=None):
     baseline_methods = {
         "stim": lambda: mean_fn(signal[time < f_stim]),
         "mean": lambda: mean_fn(signal),
-        None:   lambda: mean_fn(alt_ref) if alt_ref is not None else None,
+        None: lambda: mean_fn(alt_ref) if alt_ref is not None else None,
     }
 
     B0 = baseline_methods.get(ref, baseline_methods[None])()
@@ -122,9 +122,8 @@ def normFn(data, ref=None, step=1.75, first_stim=None, alt_ref=None):
 # Epoch segmentation
 # ---------------------------------------------------------------------------
 
-def segmentData(
-    normData, Sti_Onsets: list, time_bf_stim=1, t0s=0, TR=1.75, dtype=torch.float32
-):
+
+def segmentData(normData, Sti_Onsets: list, time_bf_stim=1, t0s=0, TR=1.75, dtype=torch.float32):
     """Segment fMRI BOLD signal data into stimulus-locked epochs.
 
     Extracts contiguous time windows of a normalised BOLD time series
@@ -184,7 +183,7 @@ def segmentData(
                 )
             else:
                 segment_tensor = segment_data.reshape(-1).requires_grad_(True).to(dtype)
-            
+
             corrected_time = torch.tensor(
                 np.round(segment_time - onset + time_bf_stim, 5),
                 requires_grad=True,
@@ -196,14 +195,15 @@ def segmentData(
             temp_len.append(len(segment_tensor))
 
     # Truncate all epochs to the shortest length
-    Bold_segments = [s[:temp_len[0]] for s in Bold_segments]
-    time_corrected = [t[:temp_len[0]] for t in time_corrected]
+    Bold_segments = [s[: temp_len[0]] for s in Bold_segments]
+    time_corrected = [t[: temp_len[0]] for t in time_corrected]
     return Bold_segments, time_corrected
 
 
 # ---------------------------------------------------------------------------
 # Stimulus pattern generation
 # ---------------------------------------------------------------------------
+
 
 def experimental_stims(
     normDataSize: int = 84,
@@ -261,6 +261,7 @@ def experimental_stims(
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
+
 
 def load_pickle(file_path: str):
     """Load a Python object from a pickle file.

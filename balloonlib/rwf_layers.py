@@ -7,6 +7,7 @@ existing imports continue to work:
 
     from balloonlib.rwf_layers import FactorizedLinear  # still works
 """
+
 from balloonlib.layers import (  # noqa: F401
     FactorizedLinear,
     FourierFeatureMapping,

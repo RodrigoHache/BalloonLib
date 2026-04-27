@@ -45,7 +45,6 @@ def neural_response(
         if "tau_i" in params:
             tau_i = params["tau_i"]
 
-    
     ext_stim = stimulus  # array_extend(stimulus_array, dt=dt)
 
     # ext_stim[100] = 1 ###### ESTO ES SOLO PARA PROBAR EL DELTA EN LA VERSIÖN FINAL
@@ -66,7 +65,7 @@ def neural_response(
 
     Impulse = solver(time, ext_stim)
 
-    if not N_0 :
+    if not N_0:
         response = ext_stim * (
             1 - Impulse
         )  # Im using ext_stim like indicator function otherwise we would have a rebound
@@ -104,7 +103,7 @@ def NeurovascularCoupling(
 
     - if version == 'differential'
 
-            This function calculates the neurovascular coupling according to Stephen 2007 (therefore a modification of Friston 2000) 
+            This function calculates the neurovascular coupling according to Stephen 2007 (therefore a modification of Friston 2000)
             where s is some ﬂow inducing signal deﬁned, operationally, in units corresponding to the rate of change of normalised ﬂow
         (i.e., s^{-1}) and the stimulus*0.2 corresponds with the Impulse I_{CBF}, and  stimulus*0.05 with I_{CMRO2}
 
@@ -125,8 +124,8 @@ def NeurovascularCoupling(
 
             Solves the neurovascular coupling equations described for the normalized baseline cerebral blood flow (CBF) 'f_in'.
         We then assume that both CBF and CMRO2 are linear convolutions of an impulse response function h(t) with the appropriate
-        measurement of neuronal activity N(t). According to Buxton 2004. The 'h(t)' shape is then scaled to provide the desired 
-        amplitude and duration of the impulse response. For this shape and a desired FWHM of tau_f, the time constant in Eq. (12) 
+        measurement of neuronal activity N(t). According to Buxton 2004. The 'h(t)' shape is then scaled to provide the desired
+        amplitude and duration of the impulse response. For this shape and a desired FWHM of tau_f, the time constant in Eq. (12)
         is given by the empirical expression tau_h = 0.242 * tau_f.
 
     **Input:**
@@ -159,7 +158,6 @@ def NeurovascularCoupling(
         - ``m(t)``: corresponds to equation 13.
     """
     if version == "convolution":
-
         if params is not None:
             if "tau_f" in params:
                 tau_f = params["tau_f"]  # "Width of CBF impulse response"
@@ -167,15 +165,17 @@ def NeurovascularCoupling(
                 # "the delay after the start of the stimulus before the CBF response begins"
                 delta_tf = params["delta_tf"]
             if "scale" in params:
-                # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural 
+                # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural
                 # activity with unit amplitude"
                 scale = params["scale"]
             if "f1" in params:
                 f1 = params["f1"]
         else:
             tau_f = 4  # "Width of CBF impulse response"
-            delta_tf = 1  # "the delay after the start of the stimulus before the CBF response begins"
-            # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural activity 
+            delta_tf = (
+                1  # "the delay after the start of the stimulus before the CBF response begins"
+            )
+            # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural activity
             # with unit amplitude"
             scale = True
 
@@ -189,11 +189,7 @@ def NeurovascularCoupling(
 
         def gamma(tau_h, t):
             k = 3  # "Nameless constant, revisit Buxton 2004 eq 12" )
-            return (
-                (1 / (tau_h * np.math.factorial(k)))
-                * ((t / tau_h) ** k)
-                * np.exp(-(t / tau_h))
-            )
+            return (1 / (tau_h * np.math.factorial(k))) * ((t / tau_h) ** k) * np.exp(-(t / tau_h))
 
         # h corresponds to h(t) the impulse function gamma
         h = gamma(tau_h, (time - delta_tf))
@@ -205,7 +201,6 @@ def NeurovascularCoupling(
         return NVC, h
 
     elif version == "differential":
-
         k = 1 / 1.54  ## Maith 2022
         # kappa = 0.8 ## Friston 2000
         g = 1 / 2.46  ## Maith 2022
@@ -233,10 +228,7 @@ def NeurovascularCoupling(
         fm = np.ones(1, dtype=np.float32) * y0[0]
 
         for tfm in zip(time, Nt):
-
-            sol = odeint(
-                dNC_dt, y0=(s[-1], fm[-1]), t=tfm[0], args=(tfm[1],), tfirst=True
-            )
+            sol = odeint(dNC_dt, y0=(s[-1], fm[-1]), t=tfm[0], args=(tfm[1],), tfirst=True)
             s = np.append(s, [sol.T[0, 1]])
             fm = np.append(fm, [sol.T[1, 1]])
 
@@ -251,11 +243,11 @@ def array_extend(arr: np.ndarray, dt: np.float32):
 
     **Inputs**
         - arr: np.ndarray, stimulus function made of zeros and ones, each digit es equivalent to a second
-        - dt: np.float32,  the time differential by which each digit/second will be expanded e.g. if dt=0.5 then 
+        - dt: np.float32,  the time differential by which each digit/second will be expanded e.g. if dt=0.5 then
         [0,0,1]->[0,0,0,0,1,1]
 
     **output**
-        - new_arr: np.ndarray, stimulus function made of zeros and ones, each digit es equivalent to a dt of a 
+        - new_arr: np.ndarray, stimulus function made of zeros and ones, each digit es equivalent to a dt of a
         second
     """
 
@@ -280,7 +272,7 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
     """
     Efun
 
-    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre `E`. `Efun`, definido aquí, proviene 
+    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre `E`. `Efun`, definido aquí, proviene
     de (Friston et al., 2000: Nonlinear Responses in fMRI:...), que a su vez cita a (Buxton et al., 1998)
 
     **Inputs:**
@@ -358,10 +350,10 @@ def vol_func(
     **Inputs:**
 
         - ``f_in``:  np.ndarray, corresponds to equation 13, i.e. the income flow.
-        - ``params``: dict, includes the constants from equations 10 and 11, which are {tau_MTT = 3.0, alpha = 0.4, 
+        - ``params``: dict, includes the constants from equations 10 and 11, which are {tau_MTT = 3.0, alpha = 0.4,
         tau_m in [0, 30]}.
         - ``dt``: float, dt refers to the integration step.
-        - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e. 
+        - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
         tau = 0 or 0 < tau <= 30.
 
     **Outputs:**
@@ -374,7 +366,7 @@ def vol_func(
     tau_MTT = 3.0  # venous time constant
     alpha = 0.4  # Grubb's exponent (stiffness)
     tau_m = 10  # Viscoelastic time constant (deflation)
-    #tau_p = 15  # Viscoelastic time constant (inflation)
+    # tau_p = 15  # Viscoelastic time constant (inflation)
 
     if params is not None:
         if "tau_MTT" in params:
@@ -416,7 +408,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     """
     **f_out**
 
-        Integral to the balloon model, the outflow is obtained using our 'f_out' function by solving the rate of 
+        Integral to the balloon model, the outflow is obtained using our 'f_out' function by solving the rate of
         change of volume in the outflow equation, i.e., equation 11 in the Buxton 2004 article.
 
     **Inputs:**
@@ -425,7 +417,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e. the inflow.
         - ``viscoelastic``: bool, determines whether the outflow accounts for the viscoelastic effect, i.e.
          tau = 0 or 0 < tau <= 30.
-        - ``params``: dict, includes the constants from equations 10 and 11, which are 
+        - ``params``: dict, includes the constants from equations 10 and 11, which are
         {tau_MTT = 3.0, alpha = 0.4, tau_m in [0, 30]}.
 
     **Outputs:**
@@ -437,7 +429,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     tau_MTT = 3.0  # "venous time constant"
     alpha = 0.4  # "Grubb's exponent (stiffness)"
     tau_m = 10  # "Viscoelastic time constant (deflation)"
-    #tau_p = 15  # "Viscoelastic time constant (inflation)"
+    # tau_p = 15  # "Viscoelastic time constant (inflation)"
 
     if params is not None:
         if "tau_MTT" in params:
@@ -456,13 +448,13 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     a = alpha
 
     fout = ((tauMTT * vol ** (1 / a)) + taum * f_in) / (tauMTT + taum)
-    mask = (fout < 0.0) 
-    
+    mask = fout < 0.0
+
     if np.any(mask):
         tmp = np.zeros_like(fout)
-        return np.maximum(tmp,fout)
-    
-    else: 
+        return np.maximum(tmp, fout)
+
+    else:
         return fout
 
 
@@ -501,13 +493,11 @@ def time_segment(time: np.ndarray, dt: np.float32 = 0.01):
 
 
 # @njit
-def q_func(
-    vol: np.ndarray, mt: np.ndarray, f_out: np.ndarray, params, dt: float = 0.01
-):
+def q_func(vol: np.ndarray, mt: np.ndarray, f_out: np.ndarray, params, dt: float = 0.01):
     """
     **q_fun**
 
-        q_fun provides the solution to the differential equation for deoxyhemoglobin content, based on a 
+        q_fun provides the solution to the differential equation for deoxyhemoglobin content, based on a
         combination of equations 10 and 11 from the Buxton 2004 article.
 
     **Inputs:**
@@ -515,7 +505,7 @@ def q_func(
         - ``vol``: np.ndarray, time series of volume according to equation 10 of Buxton 2004.
         - ``mt``: np.ndarray, time series of normalized cerebral oxygen metabolic rate (CMRO2) to its resting value.
         - ``f_out``: np.ndarray, time series of the outflow according to equation 11 of Buxton 2004.
-        - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
+        - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
         tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
@@ -557,6 +547,7 @@ def q_func(
 
     return q, time
 
+
 def Balloon_odeint(
     f_in: np.ndarray,
     mt: np.ndarray,
@@ -574,7 +565,7 @@ def Balloon_odeint(
 
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
         - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
-        - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4, 
+        - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
         tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
         - ``y0``: tuple, initial coordinates for both vt and qt.
@@ -686,7 +677,7 @@ def Balloon_ivp(
     # @njit
     def dB_dt(t, B, f, m):
         v, q = B
-        fout = f_out(v, f, viscoelastic=viscoelastic, params= params)
+        fout = f_out(v, f, viscoelastic=viscoelastic, params=params)
         return [
             (f - v ** (1 / a)) / (tauMTT + taum),
             ((m - (q / v) * fout) / tauMTT),
@@ -697,7 +688,6 @@ def Balloon_ivp(
         q = np.ones(1, dtype=np.float32) * y0[1]
 
         for tfm in zip(t, f, m):
-
             sol_ivp = solve_ivp(
                 dB_dt,
                 t_span=tfm[0],
@@ -721,6 +711,7 @@ def Balloon_ivp(
     v, q = solver(time, f, m, y0)
     return (v, q)
 
+
 # @njit
 def cartesian(arrays, out=None):
     """
@@ -734,7 +725,7 @@ def cartesian(arrays, out=None):
 
     **Output:**
 
-        - ``out``: np.ndarray, a 2-D array with a format/shape of (M, len(arrays)) containing the Cartesian product 
+        - ``out``: np.ndarray, a 2-D array with a format/shape of (M, len(arrays)) containing the Cartesian product
         formed from the inputs.
 
     **Example:**
@@ -758,6 +749,7 @@ def cartesian(arrays, out=None):
     # Concatenar los resultados en una matriz de
     result = np.concatenate([x.reshape(-1, 1) for x in mesh], axis=1)
     return result
+
 
 def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     """Compute BOLD signal from volume and deoxyhemoglobin.
@@ -788,9 +780,9 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
     V_0 = 0.03  # "Baseline blood volume")
     TE = 0.04  # "Echo time in miliseconds")
     eps = 1.43  # "Ratio of intra- to extravascular BOLD signal at rest")
-    r_0 = 25  # "The slope of the relation between the intravascular relaxation rate and oxygen saturation. 
+    r_0 = 25  # "The slope of the relation between the intravascular relaxation rate and oxygen saturation.
     # For a field strength of 1.5[T], r0=25 s^{-1}")
-    O_o = 40.3  # "The frequency offset at the outer surface of the magnetised vessel for fully deoxygenated blood. 
+    O_o = 40.3  # "The frequency offset at the outer surface of the magnetised vessel for fully deoxygenated blood.
     # For a field strength of 1.5[T], v0=40.3 s^{-1}")
 
     if params is not None:
@@ -816,13 +808,12 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
         k_1 = 4.3 * O_o * E_0 * TE
         k_2 = eps * r_0 * E_0 * TE
     else:
-        print(
-            "So far we only have known 2 kinds of Balloons, as sujested by Stephan 2007"
-        )
+        print("So far we only have known 2 kinds of Balloons, as sujested by Stephan 2007")
 
     k_3 = 1.0 - eps
 
     return V_0 * (k_1 * (1.0 - qt) + k_2 * (1.0 - qt / vt) + k_3 * (1.0 - vt))
+
 
 # @njit
 def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):

@@ -15,6 +15,7 @@ from balloonlib.utils import tensor2np
 # Kling–Gupta Efficiency
 # ---------------------------------------------------------------------------
 
+
 def kge_stat(y_obs, y_sim):
     """Compute the Kling--Gupta Efficiency (KGE) between two signals.
 
@@ -30,6 +31,7 @@ def kge_stat(y_obs, y_sim):
     float
         KGE value; 1.0 indicates a perfect match.
     """
+
     def t2np(y):
         return np.copy(tensor2np(y)) if isinstance(y, torch.Tensor) else y
 
@@ -46,6 +48,7 @@ def kge_stat(y_obs, y_sim):
 # ---------------------------------------------------------------------------
 # HRF descriptor extraction
 # ---------------------------------------------------------------------------
+
 
 def hrf_description(
     hrf_data,
@@ -85,11 +88,7 @@ def hrf_description(
         ``AUC``, ``MU``, ``TTU[s]``, ``TT0[s]``.  Each value is a NumPy
         array of length ``n_signals``.
     """
-    tmp = (
-        hrf_data.squeeze()
-        if isinstance(hrf_data, torch.Tensor)
-        else np.squeeze(hrf_data)
-    )
+    tmp = hrf_data.squeeze() if isinstance(hrf_data, torch.Tensor) else np.squeeze(hrf_data)
     hrf = np.copy(tensor2np(tmp)) if isinstance(tmp, torch.Tensor) else np.copy(tmp)
 
     # Threshold below which values are treated as zero
@@ -101,9 +100,7 @@ def hrf_description(
     elif hrf.ndim == 1:
         hrf = hrf.reshape(1, -1)
     else:
-        raise TypeError(
-            "Several signals should be delivered using a order-2 tensor (matrix)"
-        )
+        raise TypeError("Several signals should be delivered using a order-2 tensor (matrix)")
 
     # Truncate to 6 decimal places to avoid floating-point precision issues
     hrf = np.trunc(hrf * 1e6) * 1e-6
@@ -112,12 +109,12 @@ def hrf_description(
     time = np.arange(0, max_time, max_time / signal_length)
 
     output = {
-        "HP":     np.empty(n_signals),
+        "HP": np.empty(n_signals),
         "TTP[s]": np.empty(n_signals),
         "FWHM[s]": np.empty(n_signals),
-        "TO[s]":  np.empty(n_signals),
-        "AUC":    np.empty(n_signals),
-        "MU":     np.empty(n_signals),
+        "TO[s]": np.empty(n_signals),
+        "AUC": np.empty(n_signals),
+        "MU": np.empty(n_signals),
         "TTU[s]": np.empty(n_signals),
         "TT0[s]": np.empty(n_signals),
     }
@@ -131,8 +128,8 @@ def hrf_description(
     output["TTU[s]"] = time[TTUi]
 
     for j in range(n_signals):
-        before_max = hrf[j, :TTPi[j]]
-        after_max = hrf[j, TTPi[j]:]
+        before_max = hrf[j, : TTPi[j]]
+        after_max = hrf[j, TTPi[j] :]
         half_max = output["HP"][j] / 2
         half_max_min = half_max <= zero
 
@@ -169,20 +166,18 @@ def hrf_description(
 
             if integration_rule == "trapezoidal":
                 output["AUC"][j] = (
-                    0.5 * dt * np.sum(
-                        hrf[j, root_l:root_r - 1] + hrf[j, root_l + 1:root_r]
-                    )
+                    0.5 * dt * np.sum(hrf[j, root_l : root_r - 1] + hrf[j, root_l + 1 : root_r])
                 )
             elif integration_rule == "rectangle":
                 output["AUC"][j] = dt * np.sum(hrf[j, root_l:root_r])
 
             # Undershoot descriptors (MU, TTU, TT0)
-            output["MU"][j] = np.nan if output["MU"][j] >= -1*zero else output["MU"][j]
+            output["MU"][j] = np.nan if output["MU"][j] >= -1 * zero else output["MU"][j]
 
-            if output["MU"][j] < -1*zero:
+            if output["MU"][j] < -1 * zero:
                 TTUi_j = TTPi[j] + np.argmin(after_max)
                 output["TTU[s]"][j] = time[TTUi_j]
-                tmp_tt0 = np.argmax(hrf[j, TTUi_j:] >= -1*zero)
+                tmp_tt0 = np.argmax(hrf[j, TTUi_j:] >= -1 * zero)
                 if tmp_tt0 == 0:
                     output["TT0[s]"][j] = np.nan
                 else:

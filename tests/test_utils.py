@@ -1,6 +1,7 @@
 """
 Smoke tests for utility functions in balloonpinnlib.
 """
+
 import numpy as np
 import pytest
 import torch
@@ -21,6 +22,7 @@ from balloonlib.balloonpinnlib import (
 # ---------------------------------------------------------------------------
 # normFn
 # ---------------------------------------------------------------------------
+
 
 class TestNormFn:
     def test_mean_ref_returns_zero_mean(self):
@@ -49,6 +51,7 @@ class TestNormFn:
 # scale_domains
 # ---------------------------------------------------------------------------
 
+
 class TestScaleDomains:
     def test_identity_when_domains_equal(self):
         t = torch.linspace(0, 1, 10)
@@ -70,6 +73,7 @@ class TestScaleDomains:
 # ---------------------------------------------------------------------------
 # pytorch_convolve
 # ---------------------------------------------------------------------------
+
 
 class TestPytorchConvolve:
     def test_full_length(self):
@@ -100,6 +104,7 @@ class TestPytorchConvolve:
 # timeBall
 # ---------------------------------------------------------------------------
 
+
 class TestTimeBall:
     def test_exact_match(self):
         t1 = torch.tensor([[0.0], [0.5], [1.0]])
@@ -119,6 +124,7 @@ class TestTimeBall:
 # dfdt
 # ---------------------------------------------------------------------------
 
+
 class TestDfdt:
     def test_constant_has_zero_derivative(self, dtype):
         t = torch.linspace(0, 1, 30, dtype=dtype).view(-1, 1).requires_grad_(True)
@@ -137,6 +143,7 @@ class TestDfdt:
 # ---------------------------------------------------------------------------
 # DoubleGamma
 # ---------------------------------------------------------------------------
+
 
 class TestDoubleGamma:
     def test_returns_callable(self):
@@ -160,6 +167,7 @@ class TestDoubleGamma:
 # kge_stat
 # ---------------------------------------------------------------------------
 
+
 class TestKgeStat:
     def test_perfect_match(self):
         y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -178,6 +186,7 @@ class TestKgeStat:
 # tofit
 # ---------------------------------------------------------------------------
 
+
 class TestTofit:
     def test_output_shapes(self, dtype):
         stim = torch.zeros(200, dtype=dtype)
@@ -191,6 +200,7 @@ class TestTofit:
 # ---------------------------------------------------------------------------
 # training_data
 # ---------------------------------------------------------------------------
+
 
 class TestTrainingData:
     def test_correct_length(self, dtype):

@@ -2,7 +2,7 @@
 Normalized Time Training Module for Balloon PINN
 
 This module implements time normalization strategies for training Physics-Informed
-Neural Networks (PINNs) on the balloon hemodynamic model. 
+Neural Networks (PINNs) on the balloon hemodynamic model.
 
 KEY CONCEPT:
 -----------
@@ -37,14 +37,14 @@ from balloonlib.balloonpinnlib import dfdt
 def normalize_time(t: torch.Tensor, domain: Tuple[float, float]) -> torch.Tensor:
     """
     Normalize time from physical domain to [0, 1].
-    
+
     Args:
         t: Time tensor in physical units (e.g., seconds)
         domain: Tuple (t_min, t_max) defining the physical time range
-        
+
     Returns:
         t_norm: Normalized time in [0, 1]
-        
+
     Example:
         >>> t = torch.tensor([0., 10., 20., 30.])
         >>> t_norm = normalize_time(t, domain=(0, 30))
@@ -58,14 +58,14 @@ def normalize_time(t: torch.Tensor, domain: Tuple[float, float]) -> torch.Tensor
 def denormalize_time(t_norm: torch.Tensor, domain: Tuple[float, float]) -> torch.Tensor:
     """
     Denormalize time from [0, 1] back to physical domain.
-    
+
     Args:
         t_norm: Normalized time in [0, 1]
         domain: Tuple (t_min, t_max) defining the physical time range
-        
+
     Returns:
         t: Time in physical units (e.g., seconds)
-        
+
     Example:
         >>> t_norm = torch.tensor([0., 0.333, 0.667, 1.0])
         >>> t = denormalize_time(t_norm, domain=(0, 30))
@@ -91,21 +91,21 @@ def loss_ballon_random_NORM_TIME(
 ):
     """
     Computes the total loss for the PINN with NORMALIZED TIME INPUTS.
-    
+
     This is a modified version of `loss_ballon_random()` that:
     1. Maps time from [domain[0], domain[1]] to [0, 1] for network input
     2. Uses normalized time for network forward pass and gradient computation
     3. Uses denormalized (physical) time for ODE residuals and visualization
-    
+
     TIME FLOW:
     ---------
-    Physical Time (0-30s) → [Normalize] → t_norm (0-1) → Network(t_norm) 
+    Physical Time (0-30s) → [Normalize] → t_norm (0-1) → Network(t_norm)
     → Output (v, q, f, m) → [Denormalize for physics] → ODE Residuals
     → [Keep denormalized for plots] → Visualization
-    
+
     CRITICAL: All automatic differentiation (dfdt) uses t_norm, but the values
     used in physics equations (e.g., Impulse I, time for plotting) use t_real.
-    
+
     Args:
         model (nn.Module): The PINN model.
         Balloon_params (dict): Parameters for the Balloon model.
@@ -118,9 +118,9 @@ def loss_ballon_random_NORM_TIME(
         loss_weights (torch.Tensor, optional): Weights for different loss components.
         bamp (float, optional): BOLD amplitude scaling factor. Defaults to 90.
         meFn (nn.Module, optional): Loss function (e.g., MSELoss). Defaults to nn.MSELoss().
-        
+
     Returns:
-        dict: A dictionary containing 'total_loss', 'ode_loss', 'ic_loss', 
+        dict: A dictionary containing 'total_loss', 'ode_loss', 'ic_loss',
               'border_loss', and 'Bold_loss'.
     """
     max_samples = (
@@ -135,8 +135,8 @@ def loss_ballon_random_NORM_TIME(
     else:
         # With jittering (your recent implementation)
         distr = torch.distributions.beta.Beta(5, 5)
-        t_norm = torch.arange(0, max_samples) 
-        epsilon = (distr.sample([1]) - torch.tensor(0.5))
+        t_norm = torch.arange(0, max_samples)
+        epsilon = distr.sample([1]) - torch.tensor(0.5)
         t_norm = (t_norm + epsilon) / max_samples
 
     # Require gradients on NORMALIZED time (this is what the network sees)
@@ -183,7 +183,7 @@ def loss_ballon_random_NORM_TIME(
     # STEP 5: Compute ODE residual (using PHYSICAL time values)
     # ============================================
     Impulse = data["I"].view(-1, 1).expand(-1, 2)  # shape (sample_size, 2)
-    
+
     lambdar_list = torch.tensor(Balloon_params["lambdar_list"], dtype=dtype).unsqueeze(0)
     kappa_list = torch.tensor(Balloon_params["kappa_list"], dtype=dtype).unsqueeze(0)
     gamma_list = torch.tensor(Balloon_params["gamma_list"], dtype=dtype).unsqueeze(0)
@@ -194,23 +194,25 @@ def loss_ballon_random_NORM_TIME(
     # To convert to physical time derivatives: d/dt_real = d/dt_norm * (1 / time_scale)
     # where time_scale = (domain[1] - domain[0])
     time_scale = domain[1] - domain[0]
-    
+
     # Adjust derivatives for physical time scale
     # dvdt_real = dvdt / time_scale
     # dqdt_real = dqdt / time_scale
     # For the ODE, we need: τ_MTT * dv/dt_real = f_in - f_out
     # This becomes: τ_MTT * (dv/dt_norm) / time_scale = f_in - f_out
     # Or equivalently: (τ_MTT / time_scale) * dv/dt_norm = f_in - f_out
-    
+
     tau_MTT_scaled = tau_MTT / time_scale  # Effective tau in normalized time
-    
+
     f_out = model.fout(output[1, :, 0], Balloon_params["alpha"], tau_m, dvdt / time_scale)
-    
+
     core_residual = torch.cat(
         [
             ((dvdt * tau_MTT_scaled) - (r[:, 0].view(-1, 1) - f_out)).view(-1, 1),
-            ((dqdt * tau_MTT_scaled) - 
-             (r[:, 1].view(-1, 1) - (output[1, :, 1] / output[1, :, 0]).view(-1, 1) * f_out)).view(-1, 1),
+            (
+                (dqdt * tau_MTT_scaled)
+                - (r[:, 1].view(-1, 1) - (output[1, :, 1] / output[1, :, 0]).view(-1, 1) * f_out)
+            ).view(-1, 1),
         ],
         dim=1,
     )  # shape (sample_size, 2)
@@ -253,18 +255,13 @@ def loss_ballon_random_NORM_TIME(
     # STEP 6: Data loss (if applicable)
     # ============================================
     bold_loss = torch.zeros_like(ode_loss)
-    
-    # Note: Data comparison uses the same indexing, but time interpretation 
+
+    # Note: Data comparison uses the same indexing, but time interpretation
     # should use t_real for plotting/debugging purposes
-    if (
-        ("f" in data)
-        | ("m" in data)
-        | ("Bold_ode" in data)
-        | (("v" in data) and ("q" in data))
-    ):
+    if ("f" in data) | ("m" in data) | ("Bold_ode" in data) | (("v" in data) and ("q" in data)):
         samples_index = data_params["index"]
         t_samples_real = t_real[samples_index]
-        
+
         epsilon_val = 1e-3
         t_samples_real[t_samples_real < domain[0]] = domain[0] + epsilon_val
         t_samples_real[t_samples_real > domain[1]] = domain[1] - epsilon_val
@@ -338,9 +335,7 @@ def loss_ballon_random_NORM_TIME(
     # ============================================
     w_max = 100
     total_loss = (
-        loss_weights[0] * ode_loss
-        + loss_weights[1] * bold_loss
-        + w_max * (ic_loss + border_loss)
+        loss_weights[0] * ode_loss + loss_weights[1] * bold_loss + w_max * (ic_loss + border_loss)
     )
 
     return {
@@ -350,5 +345,5 @@ def loss_ballon_random_NORM_TIME(
         "border_loss": border_loss,
         "Bold_loss": bold_loss,
         "t_normalized": t_norm,  # For debugging
-        "t_physical": t_real,    # For debugging/plotting
+        "t_physical": t_real,  # For debugging/plotting
     }

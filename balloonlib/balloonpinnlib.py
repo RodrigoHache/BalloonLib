@@ -77,21 +77,42 @@ from balloonlib.training import (  # noqa: F401
 
 __all__ = [
     # layers
-    "FourierFeatureMapping", "FactorizedLinear", "replace_linear_with_factorized",
+    "FourierFeatureMapping",
+    "FactorizedLinear",
+    "replace_linear_with_factorized",
     # utils
-    "tensor2np", "np2tensor", "scale_domains", "DoubleGamma",
-    "timeBall", "pytorch_convolve", "tofit",
+    "tensor2np",
+    "np2tensor",
+    "scale_domains",
+    "DoubleGamma",
+    "timeBall",
+    "pytorch_convolve",
+    "tofit",
     # physics
-    "dfdt", "segment_temporal_residuals", "compute_temporal_weights",
+    "dfdt",
+    "segment_temporal_residuals",
+    "compute_temporal_weights",
     "weighted_temporal_ode_loss",
     # data
-    "training_data", "normFn", "segmentData", "experimental_stims", "load_pickle",
+    "training_data",
+    "normFn",
+    "segmentData",
+    "experimental_stims",
+    "load_pickle",
     # metrics
-    "kge_stat", "hrf_description",
+    "kge_stat",
+    "hrf_description",
     # model
     "Multihead",
     # plotting
-    "plot_trace", "plot_balloon_fitting", "plot_weights", "plotHRFs", "plotSignals",
+    "plot_trace",
+    "plot_balloon_fitting",
+    "plot_weights",
+    "plotHRFs",
+    "plotSignals",
     # training
-    "loss_reweight_paranoid", "compute_per_loss_gradients", "loss", "train",
+    "loss_reweight_paranoid",
+    "compute_per_loss_gradients",
+    "loss",
+    "train",
 ]

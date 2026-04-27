@@ -17,23 +17,32 @@ from . import training
 from . import balloonpinnlib
 
 # Convenience top-level re-exports
-from .model    import Multihead       # noqa: F401
-from .training import loss, train     # noqa: F401
-from .plotting import plotSignals     # noqa: F401
+from .model import Multihead  # noqa: F401
+from .training import loss, train  # noqa: F401
+from .plotting import plotSignals  # noqa: F401
 
 # Package metadata
 __version__ = "0.1.0"
-__author__  = "Rodrigo H. Avaria"
+__author__ = "Rodrigo H. Avaria"
 __license__ = "MIT"
-__email__   = "rodrigo.avaria@uv.cl"
-__url__     = "https://github.com/errehache/BalloonLib"
+__email__ = "rodrigo.avaria@uv.cl"
+__url__ = "https://github.com/errehache/BalloonLib"
 
 __all__ = [
     # submodules
     "balloonmodellib",
-    "utils", "layers", "physics", "data", "metrics",
-    "model", "plotting", "training",
+    "utils",
+    "layers",
+    "physics",
+    "data",
+    "metrics",
+    "model",
+    "plotting",
+    "training",
     "balloonpinnlib",
     # top-level symbols
-    "Multihead", "loss", "train", "plotSignals",
+    "Multihead",
+    "loss",
+    "train",
+    "plotSignals",
 ]
