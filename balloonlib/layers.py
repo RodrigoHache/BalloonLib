@@ -278,3 +278,56 @@ def replace_linear_with_factorized(
             )
 
     return module
+
+
+# ---------------------------------------------------------------------------
+# Utility: soft Clamping parameters to a bound interval
+# ---------------------------------------------------------------------------
+
+
+class SoftClamp(nn.Module):
+    """Differentiable soft clamp mapping unconstrained input to (min_val, max_val).
+    Replaces ``torch.clamp``, whose zero gradient at saturated boundaries
+    blocks backpropagation. Uses a scaled sigmoid to produce a smooth,
+     strictly bounded output with well-defined gradients everywhere.
+
+     The transformation is:
+         out = min_val + (max_val - min_val) * sigmoid(sharpness * x)
+
+     Parameters
+     ----------
+     min_val : float
+         Lower asymptotic bound of the output range.
+     max_val : float
+         Upper asymptotic bound of the output range.
+     sharpness : float, optional
+         Controls the steepness of the sigmoid transition near the bounds.
+         Higher values approximate a hard clamp more closely.
+         Default is 1.0.
+
+     Notes
+     -----
+     - The input ``x`` is unconstrained and lives in (-inf, +inf).
+     - The output is strictly inside (min_val, max_val); the bounds are
+       never exactly reached.
+     - For use with physically bounded parameters (e.g. Balloon model
+       parameters), initialise the raw parameter near zero so that the
+       initial output sits near the midpoint of [min_val, max_val].
+     - Gradient magnitude is maximal at x=0 and decays symmetrically
+       toward the bounds; choose sharpness to avoid premature saturation.
+
+     Examples
+     --------
+     >>> clamp = SoftClamp(min_val=0.1, max_val=0.5, sharpness=5.0)
+     >>> alpha_raw = nn.Parameter(torch.tensor(0.0))
+     >>> alpha = clamp(alpha_raw)  # yields ~0.3, the midpoint
+    """
+
+    def __init__(self, min_val: float, max_val: float, sharpness: float = 1.0):
+        super().__init__()
+        self.min_val = min_val
+        self.max_val = max_val
+        self.sharpness = sharpness
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.min_val + (self.max_val - self.min_val) * torch.sigmoid(self.sharpness * x)
