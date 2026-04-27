@@ -7,7 +7,7 @@ simultaneously predicts the four Balloon haemodynamic state variables.
 
 import torch
 import torch.nn as nn
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 from balloonlib import balloonmodellib as bml
 from balloonlib.layers import FourierFeatureMapping, FactorizedLinear
@@ -160,31 +160,31 @@ class Multihead(nn.Module):
 
         if not self.random_weightsMatrix:
             self.linear = {
-                "linear1": nn.Linear(first_layer_input, 128//2, bias=False, dtype=dtype),
+                "linear1": nn.Linear(first_layer_input, 128, bias=False, dtype=dtype),
                 # "linear2": nn.Linear(128, 128, bias=False, dtype=dtype),
-                "linear3": nn.Linear(128//2, 256//2, bias=False, dtype=dtype),
+                "linear3": nn.Linear(128, 256, bias=False, dtype=dtype),
                 # "linear4": nn.Linear(256, 256, bias=False, dtype=dtype),
-                "linear5": nn.Linear(256//2, 512//2, bias=False, dtype=dtype),
+                "linear5": nn.Linear(256, 512, bias=False, dtype=dtype),
             }
             self.nv_final_layers = nn.ModuleList(
-                [nn.Linear(256//2, 1, bias=True, dtype=dtype) for _ in range(2)]
+                [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
             )
             self.Core = nn.ModuleList(
-                [nn.Linear(256//2 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
+                [nn.Linear(256 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
             )
         else:
             self.linear = {
-                "linear1": FactorizedLinear(first_layer_input, 128//2, bias=False, dtype=dtype),
-                "linear3": FactorizedLinear(128//2, 256//2, bias=False, dtype=dtype),
-                "linear5": FactorizedLinear(256//2, 512//2, bias=False, dtype=dtype),
+                "linear1": FactorizedLinear(first_layer_input, 128, bias=False, dtype=dtype),
+                "linear3": FactorizedLinear(128, 256, bias=False, dtype=dtype),
+                "linear5": FactorizedLinear(256, 512, bias=False, dtype=dtype),
             }
             self.nv_final_layers = nn.ModuleList(
                 # [FactorizedLinear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
-                    [nn.Linear(256//2, 1, bias=True, dtype=dtype) for _ in range(2)]
+                    [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
             )
             self.Core = nn.ModuleList(
                 # [FactorizedLinear(257 + i, 1, bias=True, dtype=dtype) for i in range(2)]
-                [nn.Linear(256//2 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
+                [nn.Linear(256 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
             )
 
         self.Sequential = nn.Sequential(

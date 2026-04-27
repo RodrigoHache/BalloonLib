@@ -437,7 +437,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     tau_MTT = 3.0  # "venous time constant"
     alpha = 0.4  # "Grubb's exponent (stiffness)"
     tau_m = 10  # "Viscoelastic time constant (deflation)"
-    tau_p = 15  # "Viscoelastic time constant (inflation)"
+    #tau_p = 15  # "Viscoelastic time constant (inflation)"
 
     if params is not None:
         if "tau_MTT" in params:
@@ -455,9 +455,14 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     tauMTT, a = tau_MTT, alpha
 
     fout = ((tauMTT * vol ** (1 / a)) + taum * f_in) / (tauMTT + taum)
-    fout[fout < 0.0] = 0
+    mask = (fout < 0.0) 
+    if np.any(mask):
+        tmp = np.zeros_like(fout)
+        return np.maximum(tmp,fout)
+    
+    else: return fout
 
-    return fout
+    
 
 
 # @njit
@@ -521,13 +526,11 @@ def q_func(
         - ``time``: np.ndarray, time series in which q(t) transpires.
     """
 
-    tau_MTT = 3.0  # "venous time constant")
+    tauMTT = 3.0  # "venous time constant")
 
     if params is not None:
         if "tau_MTT" in params:
-            tau_MTT = params["tau_MTT"]
-
-    tauMTT = tau_MTT
+            tauMTT = params["tau_MTT"]
 
     def dqdt(t, q, V=vol, CMRO=mt, fout=f_out) -> float:
         return (CMRO - (q / V) * fout) / tauMTT
@@ -552,7 +555,6 @@ def q_func(
     time = np.append(time[:, 0], time[-1, 1])
 
     return q, time
-
 
 def Balloon_odeint(
     f_in: np.ndarray,
@@ -605,14 +607,11 @@ def Balloon_odeint(
 
     # @njit
     def dB_dt(t, B, f, m):
-
         v, q = B
-
-        foutF = lambda v, f: ((tauMTT * v ** (1 / a)) + (taum * f)) / (tauMTT + taum)
-
+        fout = f_out(v, f, viscoelastic=viscoelastic, params=params)
         return [
             (f - v ** (1 / a)) / (tauMTT + taum),
-            ((m - (q / v) * foutF(v, f)) / tauMTT),
+            ((m - (q / v) * fout) / tauMTT),
         ]
 
     time = time_segment(f_in, dt=dt)
@@ -686,12 +685,10 @@ def Balloon_ivp(
     # @njit
     def dB_dt(t, B, f, m):
         v, q = B
-
-        foutF = lambda v, f: ((tauMTT * v ** (1 / a)) + (taum * f)) / (tauMTT + taum)
-
+        fout = f_out(v, f, viscoelastic=viscoelastic, params= params)
         return [
             (f - v ** (1 / a)) / (tauMTT + taum),
-            ((m - (q / v) * foutF(v, f)) / tauMTT),
+            ((m - (q / v) * fout) / tauMTT),
         ]
 
     def solver(t, f, m, y0):

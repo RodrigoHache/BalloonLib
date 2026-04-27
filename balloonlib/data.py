@@ -10,10 +10,6 @@ import pickle
 
 import numpy as np
 import torch
-from typing import List
-
-from balloonlib.utils import tensor2np
-
 
 # ---------------------------------------------------------------------------
 # Training index sampler
