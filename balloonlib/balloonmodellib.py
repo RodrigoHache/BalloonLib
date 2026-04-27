@@ -60,7 +60,7 @@ def neural_response(
         Imps = np.zeros(1, dtype=np.float32)  # preallocate the output
         y = np.zeros(1, dtype=np.float32)
         for ts in zip(t, stim):
-            y = odeint(didt, y0=I[-1], t=ts[0], args=(ts[1],), tfirst=True)
+            y = odeint(didt, y0=Imps[-1], t=ts[0], args=(ts[1],), tfirst=True)
             Imps = np.append(Imps, [y.T[0][1]])
         return Imps
 
@@ -452,14 +452,18 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     else:
         taum = 0
 
-    tauMTT, a = tau_MTT, alpha
+    tauMTT = tau_MTT
+    a = alpha
 
     fout = ((tauMTT * vol ** (1 / a)) + taum * f_in) / (tauMTT + taum)
+    
     mask = (fout < 0.0) 
     if np.any(mask):
         tmp = np.zeros_like(fout)
         return np.maximum(tmp,fout)
+    
     else: return fout
+
 
 # @njit
 def time_segment(time: np.ndarray, dt: np.float32 = 0.01):

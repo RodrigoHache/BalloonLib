@@ -13,9 +13,8 @@ import torch.nn as nn
 from tqdm import tqdm
 from typing import Dict, List
 
-from balloonlib import balloonmodellib as bml
 from balloonlib.physics import dfdt, weighted_temporal_ode_loss
-from balloonlib.data import training_data, segmentData, experimental_stims
+from balloonlib.data import segmentData, experimental_stims
 from balloonlib.utils import timeBall, tofit
 from balloonlib.plotting import plot_balloon_fitting
 
@@ -245,7 +244,7 @@ def loss(
     -------
     dict of {str: torch.Tensor}
         Loss dictionary with keys ``'total'``, ``'ode'``, ``'ic'``,
-        ``'border'``, ``'bold'``, ``'other'``.
+        ``'border'``, ``'bold'``.
     """
     # Evaluate model at sample points
     if model.impulse:
@@ -340,26 +339,26 @@ def loss(
     else : 
         bold_loss = torch.zeros_like(ode_loss, requires_grad=True)
 
-    n6 = len(Balloon_params["I"]) // 6
+    # n6 = len(Balloon_params["I"]) // 6
 
-    # Physics violation penalties
-    viol_df = -dfindt[:n6].squeeze()[dfindt[:n6].squeeze() <= 0]
-    viol_dm = -dmdt[:n6].squeeze()[dmdt[:n6].squeeze() <= 0]
-    viol_dv = -dvdt[:n6].squeeze()[dvdt[:n6].squeeze() <= 0]
+    # # Physics violation penalties
+    # viol_df = -dfindt[:n6].squeeze()[dfindt[:n6].squeeze() <= 0]
+    # viol_dm = -dmdt[:n6].squeeze()[dmdt[:n6].squeeze() <= 0]
+    # viol_dv = -dvdt[:n6].squeeze()[dvdt[:n6].squeeze() <= 0]
 
-    mask_f1 = (model.f >= 1).squeeze()
-    viol_m1 = (1 - model.m.squeeze()[mask_f1])
-    viol_m1 = viol_m1[viol_m1 > 0]
+    # mask_f1 = (model.f >= 1).squeeze()
+    # viol_m1 = (1 - model.m.squeeze()[mask_f1])
+    # viol_m1 = viol_m1[viol_m1 > 0]
 
-    viol_v = -model.v.squeeze()[model.v.squeeze() < 0]
+    # viol_v = -model.v.squeeze()[model.v.squeeze() < 0]
 
-    violations = [v for v in [viol_df, viol_dm, viol_dv, viol_m1, viol_v] if v.numel() > 0]
+    # violations = [v for v in [viol_df, viol_dm, viol_dv, viol_m1, viol_v] if v.numel() > 0]
 
-    if violations:
-        all_violations = torch.cat(violations)
-        other_loss = meFn(all_violations, torch.zeros_like(all_violations))
-    else:
-        other_loss = ode_loss * 0.0  # stays on graph, zero contribution
+    # if violations:
+    #     all_violations = torch.cat(violations)
+    #     other_loss = meFn(all_violations, torch.zeros_like(all_violations))
+    # else:
+    #     other_loss = ode_loss * 0.0  # stays on graph, zero contribution
 
     max_elements = Balloon_params["I"].size()[0]
 
@@ -390,7 +389,7 @@ def loss(
         "bold":   bold_loss,
         "ic":     ic_loss,
         "border": border_loss,
-        "other":  other_loss,
+        # "other":  other_loss,
     }
 
     loss_dict["total"] = (
@@ -398,7 +397,7 @@ def loss(
         + amp["bold"]   * loss_weights["bold"][-1]   * loss_dict["bold"]
         + amp["ic"]     * loss_weights["ic"][-1]     * loss_dict["ic"]
         + amp["border"] * loss_weights["border"][-1] * loss_dict["border"]
-        + amp["other"]  * loss_weights["other"][-1]  * loss_dict["other"]
+        # + amp["other"]  * loss_weights["other"][-1]  * loss_dict["other"]
     )
 
     return loss_dict
@@ -418,7 +417,7 @@ def train(
     domain=(0, 30),
     random=False,
     every=3,
-    loss_weights={"ode": [1.], "ic": [1.], "border": [1.], "bold": [1.], "other": [1.]},
+    loss_weights={"ode": [1.], "ic": [1.], "border": [1.], "bold": [1.]},#, "other": [1.]},
     scheduler=None,
     dtype=torch.float32,
 ):
@@ -461,7 +460,7 @@ def train(
         "bold":   1e0,
         "ic":     1e0,
         "border": 1e0,
-        "other":  0e1,
+        # "other":  0e1,
     }
     amp_p = torch.distributions.beta.Beta(6, 2)
     loss_trace  = {key: [] for key in loss_weights.keys()}
@@ -611,22 +610,22 @@ def train(
         if every != 0 and (i + 1) % every == 0:
             print(f"{i + 1}th Iter:")
             print(
-                "total {:.4e}, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}, other:{:.3e}".format(
+                "total {:.4e}, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}".format(#, other:{:.3e}".format(
                     loss_dict["total"].detach().item(),
                     loss_dict["ode"].detach().item(),
                     loss_dict["bold"].detach().item(),
                     loss_dict["ic"].detach().item(),
                     loss_dict["border"].detach().item(),
-                    loss_dict["other"].detach().item(),
+                    # loss_dict["other"].detach().item(),
                 )
             )
             print(
-                "total weights, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}, other:{:.3e}".format(
+                "total weights, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}".format(#, other:{:.3e}".format(
                     loss_weights["ode"][-1],
                     loss_weights["bold"][-1],
                     loss_weights["ic"][-1],
                     loss_weights["border"][-1],
-                    loss_weights["other"][-1],
+                    # loss_weights["other"][-1],
                 )
             )
             print("Physics amp", amp)
