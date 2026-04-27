@@ -57,12 +57,12 @@ def neural_response(
     time = time_segment(ext_stim, dt=dt)
 
     def solver(t, stim):
-        I = np.zeros(1, dtype=np.float32)  # preallocate the output
+        Imps = np.zeros(1, dtype=np.float32)  # preallocate the output
         y = np.zeros(1, dtype=np.float32)
         for ts in zip(t, stim):
             y = odeint(didt, y0=I[-1], t=ts[0], args=(ts[1],), tfirst=True)
-            I = np.append(I, [y.T[0][1]])
-        return I
+            Imps = np.append(Imps, [y.T[0][1]])
+        return Imps
 
     Impulse = solver(time, ext_stim)
 
@@ -374,7 +374,7 @@ def vol_func(
     tau_MTT = 3.0  # venous time constant
     alpha = 0.4  # Grubb's exponent (stiffness)
     tau_m = 10  # Viscoelastic time constant (deflation)
-    tau_p = 15  # Viscoelastic time constant (inflation)
+    #tau_p = 15  # Viscoelastic time constant (inflation)
 
     if params is not None:
         if "tau_MTT" in params:
@@ -459,11 +459,7 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
     if np.any(mask):
         tmp = np.zeros_like(fout)
         return np.maximum(tmp,fout)
-    
     else: return fout
-
-    
-
 
 # @njit
 def time_segment(time: np.ndarray, dt: np.float32 = 0.01):

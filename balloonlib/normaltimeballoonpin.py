@@ -217,7 +217,6 @@ def loss_ballon_random_NORM_TIME(
 
     # Find the index of the first non-zero value (using PHYSICAL time for interpretation)
     first_non_zero_index = torch.argmax(data["I"]) - 1
-    print()(first_non_zero_index * time_scale / max_samples).item()
     first_non_zero_t = (first_non_zero_index * time_scale / max_samples).item()
     combined_condition = (t_real.squeeze(1) < domain[0] + first_non_zero_t) | (
         t_real.squeeze(1) >= domain[1] - 2
@@ -225,7 +224,7 @@ def loss_ballon_random_NORM_TIME(
 
     residual = torch.cat(
         [
-            9 * (dsdt - ((lambdar_list * I) - (kappa_list * drdt) - (gamma_list * (r - 1)))),
+            9 * (dsdt - ((lambdar_list * Impulse) - (kappa_list * drdt) - (gamma_list * (r - 1)))),
             6 * core_residual,
             (dpredt_num - model.dpredt(dvdt=dvdt / time_scale, dqdt=dqdt / time_scale, t=t_real)),
         ],
@@ -296,7 +295,7 @@ def loss_ballon_random_NORM_TIME(
     # ============================================
     # STEP 7: Initial/Boundary conditions
     # ============================================
-    if (I[combined_condition, 0] == 0).all():
+    if (Impulse[combined_condition, 0] == 0).all():
         tmp_index = torch.arange(max_samples)[combined_condition]
         output_border = torch.index_select(output, dim=1, index=tmp_index).view(-1, 4)
         hrf_pinn_border = hrf_pinn[combined_condition].requires_grad_(True).view(-1, 1)
