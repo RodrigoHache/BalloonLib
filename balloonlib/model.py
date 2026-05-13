@@ -128,7 +128,7 @@ class Multihead(nn.Module):
         }
 
         # Grubb's exponent (initial)
-        self._alpha = nn.Parameter(torch.tensor(0.4, dtype=dtype))  # , 0.4 #
+        self._alpha = nn.Parameter(torch.tensor(0.38, dtype=dtype))  # , 0.4 #
         # alpha Soft Clamp (bounded according to Griffeth 2011)
         self.aSClamp = SoftClamp(min_val=0.01, max_val=0.65)
 
