@@ -16,6 +16,15 @@ def device():
     return "cpu"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _configure_balloonlib(device, dtype):
+    """Keep balloonlib's config in sync with the test fixtures."""
+    import balloonlib
+
+    balloonlib.set_device(device)
+    balloonlib.set_dtype(dtype)
+
+
 @pytest.fixture(scope="session")
 def small_time(dtype):
     """Normalised time vector of 50 points in [-1, 1]."""

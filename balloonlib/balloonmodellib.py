@@ -1,10 +1,8 @@
-# %%
+import math
+
 import numpy as np
 from scipy.integrate import odeint, solve_ivp
 from scipy.signal import convolve
-
-# from numba import jit, njit, cfunc
-# from random import choices as rch
 
 
 def neural_response(
@@ -45,33 +43,20 @@ def neural_response(
         if "tau_i" in params:
             tau_i = params["tau_i"]
 
-    ext_stim = stimulus  # array_extend(stimulus_array, dt=dt)
-
-    # ext_stim[100] = 1 ###### ESTO ES SOLO PARA PROBAR EL DELTA EN LA VERSIÖN FINAL
-    # @njit
     def didt(t, i, s):
-        # retornamos lo que sale de ((k*(s-i)-i)/taui)
         return (k * s - (k + 1) * i) / tau_i
 
-    time = time_segment(ext_stim, dt=dt)
-
-    def solver(t, stim):
-        Imps = np.zeros(1, dtype=np.float32)  # preallocate the output
-        y = np.zeros(1, dtype=np.float32)
-        for ts in zip(t, stim):
-            y = odeint(didt, y0=Imps[-1], t=ts[0], args=(ts[1],), tfirst=True)
-            Imps = np.append(Imps, [y.T[0][1]])
-        return Imps
-
-    Impulse = solver(time, ext_stim)
+    time = time_segment(stimulus, dt=dt)
+    impulse = np.zeros(1, dtype=np.float32)
+    for ts in zip(time, stimulus):
+        y = odeint(didt, y0=impulse[-1], t=ts[0], args=(ts[1],), tfirst=True)
+        impulse = np.append(impulse, [y.T[0][1]])
 
     if not N_0:
-        response = ext_stim * (
-            1 - Impulse
-        )  # Im using ext_stim like indicator function otherwise we would have a rebound
+        response = stimulus * (1 - impulse)
     else:
-        response = n_0.random() + ext_stim - Impulse
-        response[np.where(response <= 0.0)] = 0.0
+        response = n_0 + stimulus - impulse
+        response[response <= 0.0] = 0.0
 
     if scale:
         response = (response - np.min(response)) / (np.max(response) - np.min(response))
@@ -79,15 +64,15 @@ def neural_response(
     return response, np.append(time[:, 0], time[-1, 1])
 
 
-def NeurovascularCoupling(
+def neurovascular_coupling(
     stimulus: np.ndarray,
     version: str = "differential",
     params=None,
-    dt: np.float32 = 0.01,
-    mode="full",
-    method="direct",
+    dt: float = 0.01,
+    mode: str = "full",
+    method: str = "direct",
     y0=(1, 0),
-    AmpI: np.float32 = 0.2,
+    AmpI: float = 0.2,
 ):
     """
     NeurovascularCoupling
@@ -158,53 +143,38 @@ def NeurovascularCoupling(
         - ``m(t)``: corresponds to equation 13.
     """
     if version == "convolution":
+        tau_f = 4
+        delta_tf = 1
+        scale = True
+        f1 = 1.009
+
         if params is not None:
             if "tau_f" in params:
-                tau_f = params["tau_f"]  # "Width of CBF impulse response"
+                tau_f = params["tau_f"]
             if "delta_tf" in params:
-                # "the delay after the start of the stimulus before the CBF response begins"
                 delta_tf = params["delta_tf"]
             if "scale" in params:
-                # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural
-                # activity with unit amplitude"
                 scale = params["scale"]
             if "f1" in params:
                 f1 = params["f1"]
-        else:
-            tau_f = 4  # "Width of CBF impulse response"
-            delta_tf = (
-                1  # "the delay after the start of the stimulus before the CBF response begins"
-            )
-            # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural activity
-            # with unit amplitude"
-            scale = True
-
-        TOLERANCE = 1.0e-04
 
         tau_h = 0.242 * tau_f
-        # ``Nt``: array, obtained neuronal response.
-        # ``time``: array,internally used to implement a gamma function
-        # using time (plus a delay) as its domain.the time over which this unfolds.
         Nt, time = neural_response(stimulus, dt, N_0=False, scale=scale, params=None)
 
         def gamma(tau_h, t):
-            k = 3  # "Nameless constant, revisit Buxton 2004 eq 12" )
-            return (1 / (tau_h * np.math.factorial(k))) * ((t / tau_h) ** k) * np.exp(-(t / tau_h))
+            k = 3
+            return (1 / (tau_h * math.factorial(k))) * ((t / tau_h) ** k) * np.exp(-(t / tau_h))
 
-        # h corresponds to h(t) the impulse function gamma
-        h = gamma(tau_h, (time - delta_tf))
-        # fix for convergence
-        h[np.where(h <= TOLERANCE)] = 0.0
+        h = gamma(tau_h, time - delta_tf)
+        h[h <= 1e-4] = 0.0
 
         NVC = 1 + (f1 - 1) * convolve(Nt, h, mode=mode, method=method)
 
         return NVC, h
 
     elif version == "differential":
-        k = 1 / 1.54  ## Maith 2022
-        # kappa = 0.8 ## Friston 2000
-        g = 1 / 2.46  ## Maith 2022
-        # gamma = 0.4 ## Friston 2000
+        k = 1 / 1.54
+        g = 1 / 2.46
 
         if params is not None:
             if "kappa" in params:
@@ -212,15 +182,10 @@ def NeurovascularCoupling(
             if "gamma" in params:
                 g = params["gamma"]
 
-        # Nt= array_extend(np.asanyarray(stimulus), dt=dt)*AmpI
-        Nt = (
-            stimulus * AmpI
-        )  # now we supposed that the stim comes with the time resolution included from the start
+        Nt = stimulus * AmpI
 
-        def dNC_dt(t, NC, Nt):  # NC stands for Neurovascular coupling
-
+        def dNC_dt(t, NC, Nt):
             s, fm = NC
-
             return [Nt - k * s - g * (fm - 1), s]
 
         time = time_segment(Nt, dt=dt)
@@ -234,103 +199,66 @@ def NeurovascularCoupling(
 
         return fm, s
 
+    else:
+        raise ValueError(f"Unknown version {version!r}. Use 'differential' or 'convolution'.")
 
-def array_extend(arr: np.ndarray, dt: np.float32):
+
+def array_extend(arr: np.ndarray, dt: float) -> np.ndarray:
+    """Upsample a stimulus array from 1 sample/s to 1/dt samples/s.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Stimulus of zeros and ones (one element per second).
+    dt : float
+        Target resolution in seconds. e.g. dt=0.5 maps [0,1] → [0,0,1,1].
+
+    Returns
+    -------
+    new_arr : np.ndarray
     """
-    array_extend
-
-    Takes the stimulus function (only ones and zeros) and extends it increasing the sampling rate by 1/dt
-
-    **Inputs**
-        - arr: np.ndarray, stimulus function made of zeros and ones, each digit es equivalent to a second
-        - dt: np.float32,  the time differential by which each digit/second will be expanded e.g. if dt=0.5 then
-        [0,0,1]->[0,0,0,0,1,1]
-
-    **output**
-        - new_arr: np.ndarray, stimulus function made of zeros and ones, each digit es equivalent to a dt of a
-        second
-    """
-
-    new_arr = np.empty(0, np.float32)  # output preallocation
-
-    for a in arr:
-        tmp = np.ones(int(np.ceil(1 / dt)), dtype=np.float32) * a
-        new_arr = np.append(new_arr, tmp)
-
-    return new_arr
+    n = int(np.ceil(1 / dt))
+    return np.repeat(np.asarray(arr, dtype=np.float32), n)
 
 
-def scale_fun(arr: np.ndarray, factor: np.float32):
-    """
-    Escala funciones usando la forma [a,b]->[a,d]
-    """
+def scale_fun(arr: np.ndarray, factor: float) -> np.ndarray:
+    """Rescale ``arr`` so its range spans ``[min(arr), factor]``."""
     return np.min(arr) + (factor / (np.max(arr) - np.min(arr))) * (arr - np.min(arr))
 
 
-# @njit
-def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
-    """
-    Efun
-
-    Resuelve la ecuación para la proporción de oxígeno extraído de la sangre `E`. `Efun`, definido aquí, proviene
-    de (Friston et al., 2000: Nonlinear Responses in fMRI:...), que a su vez cita a (Buxton et al., 1998)
-
-    **Inputs:**
-
-        -``f_in``: array, corresponde a la ecuación 13 i.e. el flujo de ingreso.
-        -``E0``: float, oxígeno extraído de la sangre, 0.32 por defecto. Valor en Buxton 2004
-
-    **Output:**
-
-        -``E``: array, la proporción de oxígeno extraído de la sangre
-
-    """
-    E_0 = 0.32  # "baseline value of oxygen extraction fraction"
-
-    if E0 is not None:
-        E_0 = E0
-
-    try:
-        E = 1 - (1 - E_0) ** (1 / f_in)
-
-    except ZeroDivisionError:
-        E = 1
-
-    return E
-
-
-# @njit
-def m_t_E(f_in: np.ndarray, E0: float = 0.32):
-    """
-    Compute normalized CMRO2 (cerebral metabolic rate of oxygen).
-
-    At steady state, CBF and CMRO2 are related by arterial oxygen concentration
-    and the net oxygen extraction fraction E. This corresponds to the normalized
-    form from Buxton 2004 eq. (2), with E from Friston 2000.
+def efun(f_in: np.ndarray, E0: float = 0.32) -> np.ndarray:
+    """Compute oxygen extraction fraction E (Friston 2000, Buxton 1998).
 
     Parameters
     ----------
     f_in : np.ndarray
-        Input flow (equation 13).
-    E0 : float, optional
-        Baseline oxygen extraction fraction, by default 0.32 (Buxton 2004).
+        Normalised inflow (eq. 13).
+    E0 : float
+        Baseline oxygen extraction fraction.
+
+    Returns
+    -------
+    E : np.ndarray
+    """
+    return 1 - (1 - E0) ** (1 / f_in)
+
+
+def m_t_E(f_in: np.ndarray, E0: float = 0.32) -> np.ndarray:
+    """Compute normalised CMRO2 (Buxton 2004 eq. 2, Friston 2000).
+
+    Parameters
+    ----------
+    f_in : np.ndarray
+        Normalised inflow (eq. 13).
+    E0 : float
+        Baseline oxygen extraction fraction.
 
     Returns
     -------
     mE : np.ndarray
-        Normalized CMRO2 relative to baseline, as a function of oxygen
-        extraction fraction E.
-
+        Normalised CMRO2 relative to baseline.
     """
-
-    E_0 = 0.32  # "baseline value of oxygen extraction fraction"
-
-    if E0 is not None:
-        E_0 = E0
-
-    mE = f_in * (Efun(f_in, E_0) / E_0)
-
-    return mE
+    return f_in * (efun(f_in, E0) / E0)
 
 
 # @njit
@@ -363,10 +291,9 @@ def vol_func(
 
     """
 
-    tau_MTT = 3.0  # venous time constant
-    alpha = 0.4  # Grubb's exponent (stiffness)
-    tau_m = 10  # Viscoelastic time constant (deflation)
-    # tau_p = 15  # Viscoelastic time constant (inflation)
+    tau_MTT = 3.0
+    alpha = 0.4
+    tau_m = 10
 
     if params is not None:
         if "tau_MTT" in params:
@@ -376,31 +303,20 @@ def vol_func(
         if "tau_m" in params:
             tau_m = params["tau_m"]
 
-    if viscoelastic:
-        taum = tau_m
-    else:
-        taum = 0
-
-    tauMTT, a = tau_MTT, alpha
+    taum = tau_m if viscoelastic else 0
 
     def dvdt(t, v, f) -> float:
-        return (f - v ** (1 / a)) / (tauMTT + taum)
+        return (f - v ** (1 / alpha)) / (tau_MTT + taum)
 
-    v = np.empty(0, dtype=np.float32)  # preallocate the output
+    v = np.empty(0, dtype=np.float32)
     time = time_segment(f_in, dt=dt)
 
     for ts in zip(time, f_in):
-        if 0 in ts[0]:
-            tmp = vol0
-        else:
-            tmp = v[-1]
-
-        y = odeint(dvdt, y0=tmp, t=ts[0], args=(ts[1],), tfirst=True)
+        y0 = vol0 if 0 in ts[0] else v[-1]
+        y = odeint(dvdt, y0=y0, t=ts[0], args=(ts[1],), tfirst=True)
         v = np.append(v, [y.T[0][1]])
 
-    time = time[:, 0]
-
-    return [v, time]
+    return v, time[:, 0]
 
 
 # @njit
@@ -426,10 +342,9 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
 
     """
 
-    tau_MTT = 3.0  # "venous time constant"
-    alpha = 0.4  # "Grubb's exponent (stiffness)"
-    tau_m = 10  # "Viscoelastic time constant (deflation)"
-    # tau_p = 15  # "Viscoelastic time constant (inflation)"
+    tau_MTT = 3.0
+    alpha = 0.4
+    tau_m = 10
 
     if params is not None:
         if "tau_MTT" in params:
@@ -439,148 +354,106 @@ def f_out(vol: np.ndarray, f_in: np.ndarray, viscoelastic: bool = False, params=
         if "tau_m" in params:
             tau_m = params["tau_m"]
 
-    if viscoelastic:
-        taum = tau_m
-    else:
-        taum = 0
+    taum = tau_m if viscoelastic else 0
 
-    tauMTT = tau_MTT
-    a = alpha
-
-    fout = ((tauMTT * vol ** (1 / a)) + taum * f_in) / (tauMTT + taum)
-    mask = fout < 0.0
-
-    if np.any(mask):
-        tmp = np.zeros_like(fout)
-        return np.maximum(tmp, fout)
-
-    else:
-        return fout
+    fout = (tau_MTT * vol ** (1 / alpha) + taum * f_in) / (tau_MTT + taum)
+    return np.maximum(fout, 0.0)
 
 
-# @njit
-def time_segment(time: np.ndarray, dt: np.float32 = 0.01):
+def time_segment(time: np.ndarray, dt: float = 0.01) -> np.ndarray:
+    """Generate consecutive time intervals of length ``dt`` covering ``len(time)`` steps.
+
+    Parameters
+    ----------
+    time : np.ndarray
+        Array whose length determines the number of intervals.
+    dt : float
+        Interval length in seconds.
+
+    Returns
+    -------
+    new_time : np.ndarray
+        Shape ``(len(time) - 1, 2)`` — each row is ``[t_start, t_end]``.
     """
-    **time_segment**
+    t = np.arange(len(time), dtype=np.float32) * dt
+    return np.column_stack([t[:-1], t[1:]])
 
-        This function generates time intervals of length 'dt' that segment a time range similar to 'time'.
 
-    **Inputs:**
+def q_func(vol: np.ndarray, mt: np.ndarray, f_out: np.ndarray, params=None, dt: float = 0.01):
+    """Solve the deoxyhemoglobin ODE (Buxton 2004 eqs. 10–11).
 
-        - ``time``: np.ndarray or list, whose length is used for duplication.
-        - ``dt``: float, integration step used as the length of the intervals.
+    Parameters
+    ----------
+    vol : np.ndarray
+        Blood volume time series.
+    mt : np.ndarray
+        Normalised CMRO2 time series.
+    f_out : np.ndarray
+        Venous outflow time series.
+    params : dict, optional
+        Override ``tau_MTT`` (venous time constant).
+    dt : float
+        Integration step in seconds.
 
-    **Output:**
-
-        - ``new_time``: np.ndarray, such that 'array.shape = (-1,2)' with -1 time intervals of length 'dt'.
-
+    Returns
+    -------
+    q : np.ndarray
+    time : np.ndarray
     """
-
-    newt = np.arange(start=0, stop=len(time) * dt, step=dt, dtype=np.float32)
-
-    # segments the nwet[a,b] in n intervals [a_i,b_i]
-    # whith a_0 = 0 and b_n = newt[-1]
-    if len(newt) % 2 == 0:  # if len(newt) is even, no problem
-        tmp = [[newt[i], newt[i + 1]] for i in range(len(newt) - 1)]
-    else:  # if len(newt) is odd, just add an item
-        newt = np.append(newt, newt[-1] + dt)
-        tmp = [[newt[i], newt[i + 1]] for i in range(len(newt) - 1)]
-
-    # turns tmp into an array cause <3 (heart) numpy
-    new_time = np.array(tmp)
-
-    return new_time
-
-
-# @njit
-def q_func(vol: np.ndarray, mt: np.ndarray, f_out: np.ndarray, params, dt: float = 0.01):
-    """
-    **q_fun**
-
-        q_fun provides the solution to the differential equation for deoxyhemoglobin content, based on a
-        combination of equations 10 and 11 from the Buxton 2004 article.
-
-    **Inputs:**
-
-        - ``vol``: np.ndarray, time series of volume according to equation 10 of Buxton 2004.
-        - ``mt``: np.ndarray, time series of normalized cerebral oxygen metabolic rate (CMRO2) to its resting value.
-        - ``f_out``: np.ndarray, time series of the outflow according to equation 11 of Buxton 2004.
-        - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
-        tau_m in [0, 30]].
-        - ``dt``: float, dt refers to the integration step.
-        - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau <= 30.
-
-    **Outputs:**
-
-        - ``q``: np.ndarray, time series of deoxyhemoglobin content.
-        - ``time``: np.ndarray, time series in which q(t) transpires.
-    """
-
-    tauMTT = 3.0  # "venous time constant")
+    tau_MTT = 3.0
 
     if params is not None:
         if "tau_MTT" in params:
-            tauMTT = params["tau_MTT"]
+            tau_MTT = params["tau_MTT"]
 
-    def dqdt(t, q, V=vol, CMRO=mt, fout=f_out) -> float:
-        return (CMRO - (q / V) * fout) / tauMTT
+    def dqdt(t, q, V, CMRO, fout) -> float:
+        return (CMRO - (q / V) * fout) / tau_MTT
 
-    q = np.ones(1, dtype=np.float32)  # preallocate the output
+    q = np.ones(1, dtype=np.float32)
     time = time_segment(vol, dt=dt)
 
     for ts in zip(time, vol, mt, f_out):
-        y = odeint(
-            dqdt,
-            y0=q[-1],
-            t=ts[0],
-            args=(
-                ts[1],
-                ts[2],
-                ts[3],
-            ),
-            tfirst=True,
-        )
+        y = odeint(dqdt, y0=q[-1], t=ts[0], args=(ts[1], ts[2], ts[3]), tfirst=True)
         q = np.append(q, [y.T[0][1]])
 
-    time = np.append(time[:, 0], time[-1, 1])
-
-    return q, time
+    return q, np.append(time[:, 0], time[-1, 1])
 
 
-def Balloon_odeint(
+def balloon_odeint(
     f_in: np.ndarray,
     mt: np.ndarray,
     params=None,
     dt: float = 0.01,
     y0=(1, 1),
-    viscoelastic=False,
+    viscoelastic: bool = False,
 ):
+    """Solve the Balloon model ODE system with odeint (Buxton 2004 eqs. 10–11).
+
+    Parameters
+    ----------
+    f_in : np.ndarray
+        Normalised inflow (eq. 13).
+    mt : np.ndarray
+        Normalised CMRO2 time series.
+    params : dict, optional
+        Override defaults: ``tau_MTT``, ``alpha``, ``tau_m``.
+    dt : float
+        Integration step in seconds.
+    y0 : tuple
+        Initial conditions ``(v0, q0)``.
+    viscoelastic : bool
+        If True, include viscoelastic outflow.
+
+    Returns
+    -------
+    v : np.ndarray
+        Blood volume time series.
+    q : np.ndarray
+        Deoxyhemoglobin time series.
     """
-    **Balloon_odeint**
-
-        Balloon_odeint solves the system of equations for the balloon model (equations 10 and 11 from the Buxton 2004 article).
-
-    **Inputs:**
-
-        - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
-        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
-        - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
-        tau_m in [0, 30]].
-        - ``dt``: float, dt refers to the integration step.
-        - ``y0``: tuple, initial coordinates for both vt and qt.
-        - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau <= 30.
-
-    **Outputs:**
-
-        - ``v``: np.ndarray, time series of blood volume.
-        - ``q``: np.ndarray, time series of deoxyhemoglobin content.
-    """
-
-    tau_MTT = 3.0  # "venous time constant"
-    alpha = 0.4  # "Grubb's exponent (stiffness)"
-    tau_m = 10  # "Viscoelastic time constant (deflation)"
+    tau_MTT = 3.0
+    alpha = 0.4
+    tau_m = 10
 
     if params is not None:
         if "tau_MTT" in params:
@@ -590,20 +463,14 @@ def Balloon_odeint(
         if "tau_m" in params:
             tau_m = params["tau_m"]
 
-    if viscoelastic:
-        taum = tau_m
-    else:
-        taum = 0
+    taum = tau_m if viscoelastic else 0
 
-    tauMTT, a = tau_MTT, alpha
-
-    # @njit
     def dB_dt(t, B, f, m):
         v, q = B
         fout = f_out(v, f, viscoelastic=viscoelastic, params=params)
         return [
-            (f - v ** (1 / a)) / (tauMTT + taum),
-            ((m - (q / v) * fout) / tauMTT),
+            (f - v ** (1 / alpha)) / (tau_MTT + taum),
+            (m - (q / v) * fout) / tau_MTT,
         ]
 
     time = time_segment(f_in, dt=dt)
@@ -611,23 +478,14 @@ def Balloon_odeint(
     q = np.ones(1, dtype=np.float32) * y0[1]
 
     for tfm in zip(time, f_in, mt):
-        sol = odeint(
-            dB_dt,
-            y0=(v[-1], q[-1]),
-            t=tfm[0],
-            args=(
-                tfm[1],
-                tfm[2],
-            ),
-            tfirst=True,
-        )
+        sol = odeint(dB_dt, y0=(v[-1], q[-1]), t=tfm[0], args=(tfm[1], tfm[2]), tfirst=True)
         v = np.append(v, sol[1][0])
         q = np.append(q, sol[1][1])
 
     return v, q
 
 
-def Balloon_ivp(
+def balloon_ivp(
     f: np.ndarray,
     m: np.ndarray,
     params=None,
@@ -635,27 +493,33 @@ def Balloon_ivp(
     viscoelastic: bool = False,
     method: str = "DOP853",
 ):
+    """Solve the Balloon model ODE system with solve_ivp (Buxton 2004 eqs. 10–11).
+
+    Parameters
+    ----------
+    f : np.ndarray
+        Normalised inflow.
+    m : np.ndarray
+        Normalised CMRO2.
+    params : dict, optional
+        Override defaults: ``tau_MTT``, ``alpha``, ``tau_m``.
+    y0 : tuple
+        Initial conditions ``(v0, q0)``.
+    viscoelastic : bool
+        If True, include viscoelastic outflow.
+    method : str
+        ODE solver method passed to ``solve_ivp`` (default ``"DOP853"``).
+
+    Returns
+    -------
+    v : np.ndarray
+        Blood volume time series.
+    q : np.ndarray
+        Deoxyhemoglobin time series.
     """
-    **Balloon_ivp**
-
-        Balloon_ivp solves the system of equations for the balloon model (equations 10 and 11 from the Buxton 2004 article).
-
-    **Inputs:**
-
-        - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
-        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
-        - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
-         tau_m in [0, 30]].
-        - ``dt``: float, dt refers to the integration step.
-        - ``y0``: tuple, initial coordinates for both vt and qt.
-        - ``viscoelastic``: bool, determines whether the output accounts for the viscoelastic effect, i.e.
-         tau = 0 or 0 < tau <= 30.
-
-    **Outputs:**
-
-        - ``v``: np.ndarray, time series of blood volume.
-        - ``q``: np.ndarray, time series of deoxyhemoglobin content.
-    """
+    tau_MTT = 3.0
+    alpha = 0.4
+    tau_m = 10
 
     if params is not None:
         if "tau_MTT" in params:
@@ -665,51 +529,37 @@ def Balloon_ivp(
         if "tau_m" in params:
             tau_m = params["tau_m"]
 
-    if viscoelastic:
-        taum = tau_m
-    else:
-        taum = 0
-
-    tauMTT, a = tau_MTT, alpha
-
+    taum = tau_m if viscoelastic else 0
     time = time_segment(f, dt=0.01)
 
-    # @njit
     def dB_dt(t, B, f, m):
         v, q = B
         fout = f_out(v, f, viscoelastic=viscoelastic, params=params)
         return [
-            (f - v ** (1 / a)) / (tauMTT + taum),
-            ((m - (q / v) * fout) / tauMTT),
+            (f - v ** (1 / alpha)) / (tau_MTT + taum),
+            (m - (q / v) * fout) / tau_MTT,
         ]
 
-    def solver(t, f, m, y0):
-        v = np.ones(1, dtype=np.float32) * y0[0]
-        q = np.ones(1, dtype=np.float32) * y0[1]
+    v = np.ones(1, dtype=np.float32) * y0[0]
+    q = np.ones(1, dtype=np.float32) * y0[1]
 
-        for tfm in zip(t, f, m):
-            sol_ivp = solve_ivp(
-                dB_dt,
-                t_span=tfm[0],
-                y0=(v[-1], q[-1]),
-                method=method,
-                t_eval=[tfm[0][1]],
-                dense_output=False,
-                vectorized=False,
-                rtol=1e-9,
-                atol=1e-9,
-                args=(
-                    tfm[1],
-                    tfm[2],
-                ),
-            )
-            v = np.append(v, sol_ivp.y[0])
-            q = np.append(q, sol_ivp.y[1])
+    for tfm in zip(time, f, m):
+        sol_ivp = solve_ivp(
+            dB_dt,
+            t_span=tfm[0],
+            y0=(v[-1], q[-1]),
+            method=method,
+            t_eval=[tfm[0][1]],
+            dense_output=False,
+            vectorized=False,
+            rtol=1e-9,
+            atol=1e-9,
+            args=(tfm[1], tfm[2]),
+        )
+        v = np.append(v, sol_ivp.y[0])
+        q = np.append(q, sol_ivp.y[1])
 
-        return v, q
-
-    v, q = solver(time, f, m, y0)
-    return (v, q)
+    return v, q
 
 
 # @njit
@@ -751,39 +601,30 @@ def cartesian(arrays, out=None):
     return result
 
 
-def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
-    """Compute BOLD signal from volume and deoxyhemoglobin.
-
-    Calculates the blood oxygen level-dependent (BOLD) signal using
-    volume (vt) and deoxyhemoglobin (qt) values according to the
-    estimates of Obata (2004) and Buxton (2000) as presented in
-    Stephen (2007).
+def bold_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic") -> np.ndarray:
+    """Compute BOLD signal from volume and deoxyhemoglobin (Stephan 2007).
 
     Parameters
     ----------
     vt : np.ndarray
-        A 1-D array of volume (in arbitrary units) over time.
+        Blood volume time series.
     qt : np.ndarray
-        A 1-D array of cerebral deoxyhemoglobin (in arbitrary units) over time.
-    params : dict or None, optional
-        Model parameters (E_0, V_0, v_0, TE, epsilon, and r_0).
-        Defaults to None.
-    BM : str, optional
-        Kind of Balloon Model, either "classic" or "revised" (default: "classic").
+        Deoxyhemoglobin time series.
+    params : dict, optional
+        Override defaults: ``E_0``, ``V_0``, ``TE``, ``O_0``, ``r_0``, ``epsilon``.
+    BM : str
+        ``"classic"`` or ``"revised"`` balloon model coefficients (Obata 2004 / Buxton 2000).
 
     Returns
     -------
     bold : np.ndarray
-        A 1-D array of simulated BOLD signals over time.
     """
-    E_0 = 0.32  # "Baseline value of oxygen extraction fraction")
-    V_0 = 0.03  # "Baseline blood volume")
-    TE = 0.04  # "Echo time in miliseconds")
-    eps = 1.43  # "Ratio of intra- to extravascular BOLD signal at rest")
-    r_0 = 25  # "The slope of the relation between the intravascular relaxation rate and oxygen saturation.
-    # For a field strength of 1.5[T], r0=25 s^{-1}")
-    O_o = 40.3  # "The frequency offset at the outer surface of the magnetised vessel for fully deoxygenated blood.
-    # For a field strength of 1.5[T], v0=40.3 s^{-1}")
+    E_0 = 0.32
+    V_0 = 0.03
+    TE = 0.04
+    eps = 1.43
+    r_0 = 25
+    omega_0 = 40.3  # frequency offset at vessel surface for fully deoxygenated blood at 1.5T
 
     if params is not None:
         if "E_0" in params:
@@ -793,68 +634,57 @@ def BOLD_func(vt: np.ndarray, qt: np.ndarray, params=None, BM: str = "classic"):
         if "TE" in params:
             TE = params["TE"]
         if "O_0" in params:
-            O_o = params["O_0"]
+            omega_0 = params["O_0"]
         if "r_0" in params:
             r_0 = params["r_0"]
         if "epsilon" in params:
             eps = params["epsilon"]
 
     if BM == "classic":
-        # Classic coefficients
-        k_1 = (1 - V_0) * 4.3 * O_o * E_0 * TE
+        k_1 = (1 - V_0) * 4.3 * omega_0 * E_0 * TE
         k_2 = 2 * E_0
     elif BM == "revised":
-        # Revised coefficients
-        k_1 = 4.3 * O_o * E_0 * TE
+        k_1 = 4.3 * omega_0 * E_0 * TE
         k_2 = eps * r_0 * E_0 * TE
     else:
-        print("So far we only have known 2 kinds of Balloons, as sujested by Stephan 2007")
+        raise ValueError(f"Unknown BM {BM!r}. Use 'classic' or 'revised'.")
 
     k_3 = 1.0 - eps
-
     return V_0 * (k_1 * (1.0 - qt) + k_2 * (1.0 - qt / vt) + k_3 * (1.0 - vt))
 
 
-# @njit
-def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
-    """
-    Compute BOLD signal using the Davis model.
+def bold_davis(f: np.ndarray, m: np.ndarray, author: str = "Davis1998") -> np.ndarray:
+    """Compute BOLD signal using the Davis model.
 
     Parameters
     ----------
     f : np.ndarray
-        Normalized cerebral blood flow.
+        Normalised cerebral blood flow.
     m : np.ndarray
-        Normalized CMRO2 (cerebral metabolic rate of oxygen).
-    author : str, optional
-        Model parameters to use. Either "Davis1998" or "Maith2022",
-        by default "Davis198".
+        Normalised CMRO2.
+    author : str
+        Parameter set: ``"Davis1998"`` (A=0.075, α=0.4, β=1.5) or
+        ``"Maith2022"`` (A=140.9, α=0.14, β=0.91).
 
     Returns
     -------
     bold : np.ndarray
-        BOLD signal computed as: A * (1 - f^(alpha - beta) * m^beta)
-        where A, alpha, beta depend on the chosen author.
-
-    Notes
-    -----
-    Davis1998: A=0.075, alpha=0.4, beta=1.5
-    Maith2022: A=140.9, alpha=0.14, beta=0.91
+        ``A * (1 - f^(alpha - beta) * m^beta)``
     """
     if author == "Davis1998":
-        A = 0.075  #   "Amplitud constant"
-        alpha = 0.4  #   "TODO"
-        beta = 1.5  #   "TODO"
-
+        A, alpha, beta = 0.075, 0.4, 1.5
     elif author == "Maith2022":
-        A = 140.9  #   "Amplitud constant"
-        alpha = 0.14  #   "TODO"
-        beta = 0.91  #   "TODO"
-
+        A, alpha, beta = 140.9, 0.14, 0.91
     else:
-        print("So far we only have known 2 authors, Davis1998, and Maith2022")
+        raise ValueError(f"Unknown author {author!r}. Use 'Davis1998' or 'Maith2022'.")
 
-    A, a, b = A, alpha, beta
-    bold = A * (1 - f ** (a - b) * m**b)
+    return A * (1 - f ** (alpha - beta) * m**beta)
 
-    return bold
+
+# Backward-compatible PascalCase aliases
+NeurovascularCoupling = neurovascular_coupling
+Efun = efun
+Balloon_odeint = balloon_odeint
+Balloon_ivp = balloon_ivp
+BOLD_func = bold_func
+BOLD_Davis = bold_davis

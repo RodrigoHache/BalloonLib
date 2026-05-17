@@ -409,6 +409,8 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
             border_loss_trace = value
         elif key == "bold":
             bold_loss_trace = value
+        elif key == "other":
+            mmod_loss_trace = value
         else:
             raise ValueError("Unknown loss key: " + key)
 
@@ -430,6 +432,7 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
     ax[1].plot(xaxis, ode_trace, label="ODE Loss", alpha=0.9)
     ax[1].plot(xaxis, ic_trace, label="Dirichlet IC Loss", alpha=0.6)
     ax[1].plot(xaxis, border_loss_trace, label="Cauchy IC Loss", alpha=0.3)
+    ax[1].plot(xaxis, mmod_loss_trace, label="Mixed Model Reg Loss", alpha=0.3)
     if bold_loss_trace is not None:
         ax[1].plot(xaxis, bold_loss_trace, label="Data Loss", alpha=0.4)
     ax[1].set_xlabel("Number of iterations", fontsize=14)

@@ -10,13 +10,6 @@ import torch
 import torch.nn.functional as F
 from scipy.stats import gamma
 
-# ---------------------------------------------------------------------------
-# Module-level device / dtype (mirrors balloonpinnlib.py globals)
-# ---------------------------------------------------------------------------
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dtype = torch.float32
-
 
 # ---------------------------------------------------------------------------
 # Tensor ↔ NumPy converters
@@ -246,7 +239,6 @@ def DoubleGamma(
 # ---------------------------------------------------------------------------
 
 
-@torch.compile()
 def timeBall(time_tensor1, time_tensor2, delta=0.005):
     """Find nearest-neighbour indices between two time tensors.
 
@@ -271,6 +263,8 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
     """
     t1 = time_tensor1.squeeze()
     t2 = time_tensor2.squeeze()
+    if t1.device != t2.device:
+        t1 = t1.to(t2.device)
 
     # Binary search to find insertion points
     indices = torch.bucketize(t1, t2)
@@ -298,7 +292,6 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
 # ---------------------------------------------------------------------------
 
 
-@torch.compile()
 def pytorch_convolve(signal, kernel, mode="full", flip=False):
     """1-D convolution using :func:`torch.nn.functional.conv1d`.
 
@@ -323,6 +316,7 @@ def pytorch_convolve(signal, kernel, mode="full", flip=False):
     """
     signal = signal.squeeze() if signal.ndim >= 2 else signal
     kernel = kernel.squeeze() if kernel.ndim >= 2 else kernel
+    kernel = kernel.to(device=signal.device, dtype=signal.dtype)
 
     if mode == "full":
         padding = len(kernel) - 1
@@ -366,6 +360,6 @@ def tofit(stim, hrf, time_max, dt=0.01):
     """
     if isinstance(time_max, torch.Tensor):
         time_max = float(time_max.detach())
-    test_time = torch.arange(0, time_max, dt)
+    test_time = torch.arange(0, time_max, dt, device=stim.device)
     test = pytorch_convolve(stim, hrf, mode="full", flip=True)[: test_time.size(0)]
     return test, test_time

@@ -2,6 +2,10 @@
 BalloonLib — Physics-Informed Neural Network library for the Balloon haemodynamic model.
 """
 
+# Runtime configuration (must come first — submodules consume it)
+from . import config
+from .config import set_device, set_dtype  # noqa: F401
+
 # Core submodules (import order respects dependency graph)
 from . import balloonmodellib
 from . import utils
@@ -30,6 +34,7 @@ __url__ = "https://github.com/errehache/BalloonLib"
 
 __all__ = [
     # submodules
+    "config",
     "balloonmodellib",
     "utils",
     "layers",
@@ -41,6 +46,8 @@ __all__ = [
     "training",
     "balloonpinnlib",
     # top-level symbols
+    "set_device",
+    "set_dtype",
     "Multihead",
     "loss",
     "train",

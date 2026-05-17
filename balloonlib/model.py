@@ -11,9 +11,6 @@ import torch.nn as nn
 from balloonlib.layers import FourierFeatureMapping, FactorizedLinear, SoftClamp
 from balloonlib.physics import dfdt
 
-# Global dtype (mirrors balloonpinnlib globals so Multihead methods are consistent)
-dtype = torch.float32
-
 
 class Multihead(nn.Module):
     """Multi-head Physics-Informed Neural Network for the Balloon haemodynamic model.
@@ -133,10 +130,18 @@ class Multihead(nn.Module):
         self.aSClamp = SoftClamp(min_val=0.01, max_val=0.65)
 
         # Davis (1998) BOLD model parameters
+        # alpha and beta are intentionally None: hDavis/dhDavis use self.alpha and
+        # self.beta (properties) so that freshly-clamped values are computed each
+        # forward pass, avoiding "backward through freed graph" errors when
+        # retain_graph=False (default).
+        self._Davis_beta = nn.Parameter(torch.tensor(1.5, dtype=dtype))
+        self.bSClamp = SoftClamp(min_val=1., max_val=1.65)
+
+        self.Davis_M = nn.Parameter(torch.tensor(0.075, dtype=dtype))
         self.Davis_params = {
-            "alpha": self.alpha,
-            "beta": nn.Parameter(torch.tensor(1.5, dtype=dtype)),
-            "A": nn.Parameter(torch.tensor(0.075, dtype=dtype)),
+            "alpha": None,
+            "beta": None,
+            "M": self.Davis_M,
         }
 
         # Determine input dimension
@@ -217,6 +222,11 @@ class Multihead(nn.Module):
     def alpha(self):
         """Clamped Grubb's constant relating CBF and CBV"""
         return self.aSClamp(self._alpha)
+
+    @property
+    def beta(self):
+        """Clamped Davis (1998) BOLD exponent (recomputed each forward pass)."""
+        return self.bSClamp(self._Davis_beta)
 
     @property
     def epsilon(self):
@@ -489,6 +499,7 @@ class Multihead(nn.Module):
         f: torch.Tensor = None,
         m: torch.Tensor = None,
         params: dict = None,
+        volume:bool = False
     ) -> torch.Tensor:
         """Compute the Davis (1998) BOLD signal.
 
@@ -506,20 +517,32 @@ class Multihead(nn.Module):
         torch.Tensor
             BOLD signal: ``A * (1 - f^(α-β) * m^β)``.
         """
-        if f is None:
-            f = self.f
-        if m is None:
-            m = self.m
-
         p = {**self.Davis_params, **(params or {})}
-        alpha = p["alpha"] if p["alpha"] is not None else 0.4
+        beta = self.beta if p["beta"] is None else p["beta"]
+        if volume is False:
+            if f is None:
+                f = self.f
+            if m is None:
+                m = self.m
 
-        f_safe = f.clamp(min=1e-8)
-        m_safe = m.clamp(min=1e-8)
-        exp_fm = alpha - p["beta"]
-        return p["A"] * (
-            1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * p["beta"])
-        )
+            alpha = self.alpha if p["alpha"] is None else p["alpha"]
+
+            f_safe = f.clamp(min=1e-8)
+            m_safe = m.clamp(min=1e-8)
+            exp_fm = alpha - beta
+            return p["M"] * (
+                1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * beta)
+            )
+        else:
+            v = self.v
+            q = self.q
+
+            v_safe = v.clamp(min=1e-8)
+            q_safe = q.clamp(min=1e-8)
+            exp_v = 1 - beta
+            return p["M"] * (
+                1 - torch.exp(torch.log(v_safe) * exp_v) * torch.exp(torch.log(q_safe) * beta)
+            )
 
     def dhDavis(
         self,
@@ -529,6 +552,7 @@ class Multihead(nn.Module):
         dm: torch.Tensor = None,
         t: torch.Tensor = None,
         params: dict = None,
+        volume:bool = False,
     ) -> torch.Tensor:
         """Compute the time derivative of the Davis (1998) BOLD signal.
 
@@ -553,21 +577,26 @@ class Multihead(nn.Module):
             Time derivative dh/dt of the Davis BOLD signal.
         """
         p = {**self.Davis_params, **(params or {})}
+        beta = self.beta if p["beta"] is None else p["beta"]
+        if volume is False:
+            if f is None:
+                f = self.f
+            if m is None:
+                m = self.m
+            alpha = self.alpha if p["alpha"] is None else p["alpha"]
+            exp_f = alpha - beta
+            # Analytical derivative: dh/dt = -M * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
+            dhdt = -p["M"] * (
+                exp_f * (f ** (exp_f - 1)) * (m**beta) * df
+                + beta * (f**exp_f) * (m ** (beta - 1)) * dm
+            )
+        else:
+            v = self.v
+            q = self.q
 
-        if f is None:
-            f = self.f.squeeze() if self.f.ndim >= 2 else self.f
-        if m is None:
-            m = self.m.squeeze() if self.m.ndim >= 2 else self.m
-        alpha = p["alpha"] if p["alpha"] is not None else 0.4
-
-        if df is None:
-            df = dfdt(signal=f, arg=t)
-        if dm is None:
-            dm = dfdt(signal=m, arg=t)
-
-        # Analytical derivative: dh/dt = A * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
-        dhdt = p["A"] * (
-            (alpha - p["beta"]) * df * f ** (alpha - p["beta"] - 1) * m ** p["beta"]
-            + f ** (alpha - p["beta"]) * p["beta"] * dm * m ** (p["beta"] - 1)
-        )
+            exp_v = 1 - beta
+            dhdt = -p["M"] * (
+                exp_v * (v ** (exp_v - 1)) * (q**beta) * df
+                + beta * (v**exp_v) * (q ** (-exp_v)) * dm
+            )
         return dhdt
