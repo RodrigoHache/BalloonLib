@@ -16,6 +16,8 @@ from . import metrics
 from . import model
 from . import plotting
 from . import training
+from . import balloon_latent_prior
+from . import elbo_training
 
 # Backward-compat shim (keeps `from balloonlib import balloonpinnlib` working)
 from . import balloonpinnlib
@@ -24,6 +26,8 @@ from . import balloonpinnlib
 from .model import Multihead  # noqa: F401
 from .training import loss, train  # noqa: F401
 from .plotting import plotSignals  # noqa: F401
+from .balloon_latent_prior import BalloonLatentPrior, BalloonPosterior, make_balloon_prior  # noqa: F401
+from .elbo_training import make_ode_prior, theta_to_balloon_params, elbo_train, ELBO_PARAM_SPEC, ELBO_PRIOR_MEAN  # noqa: F401
 
 # Package metadata
 __version__ = "0.1.0"
@@ -52,4 +56,12 @@ __all__ = [
     "loss",
     "train",
     "plotSignals",
+    "BalloonLatentPrior",
+    "BalloonPosterior",
+    "make_balloon_prior",
+    "make_ode_prior",
+    "theta_to_balloon_params",
+    "elbo_train",
+    "ELBO_PARAM_SPEC",
+    "ELBO_PRIOR_MEAN",
 ]

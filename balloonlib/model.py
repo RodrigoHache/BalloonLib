@@ -124,16 +124,9 @@ class Multihead(nn.Module):
             ),  # nn.Parameter(torch.tensor(1.43, dtype=dtype)),
         }
 
-        # Grubb's exponent (initial)
-        self._alpha = nn.Parameter(torch.tensor(0.38, dtype=dtype))  # , 0.4 #
-        # alpha Soft Clamp (bounded according to Griffeth 2011)
-        self.aSClamp = SoftClamp(min_val=0.01, max_val=0.65)
-
         # Davis (1998) BOLD model parameters
-        # alpha and beta are intentionally None: hDavis/dhDavis use self.alpha and
-        # self.beta (properties) so that freshly-clamped values are computed each
-        # forward pass, avoiding "backward through freed graph" errors when
-        # retain_graph=False (default).
+        # alpha comes from Balloon_params (sampled or fixed externally).
+        # beta is a learnable parameter clamped via SoftClamp.
         self._Davis_beta = nn.Parameter(torch.tensor(1.5, dtype=dtype))
         self.bSClamp = SoftClamp(min_val=1., max_val=1.65)
 
@@ -217,11 +210,6 @@ class Multihead(nn.Module):
         # neural network splitting? False = [0,0]; True = [0,1]
         # nns = [0,0] means f & m from outi[0] v & q from outi[1]
         self.nns = [0, 1 if self.Core2NV else 0]
-
-    @property
-    def alpha(self):
-        """Clamped Grubb's constant relating CBF and CBV"""
-        return self.aSClamp(self._alpha)
 
     @property
     def beta(self):
@@ -330,7 +318,7 @@ class Multihead(nn.Module):
         #   nns = [0,1] -> v_arg = [outi[0] ,f]
         # else: v_arg = [outi[1] ,f]
         v_arg = torch.cat((outi[1 - self.nns[1]], self.f), axis=1)
-        q_arg = torch.cat((outi[1], self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
+        q_arg = torch.cat((outi[1], -self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
         core_arg = [v_arg, q_arg]
 
         self.v, self.q = [self.core_fn[i](self.Core[i](core_arg[i])) for i in range(2)]
@@ -375,7 +363,7 @@ class Multihead(nn.Module):
             dvdt = dvdt.squeeze() if dvdt.ndim >= 2 else dvdt
 
         if alpha is None:
-            alpha = self.alpha
+            raise ValueError("alpha must be passed explicitly (from Balloon_params['alpha'])")
 
         v_safe = v.clamp(min=1e-8)
         return (torch.exp(torch.log(v_safe) / alpha) + (tau_m * dvdt)).view(-1, 1)
@@ -525,7 +513,9 @@ class Multihead(nn.Module):
             if m is None:
                 m = self.m
 
-            alpha = self.alpha if p["alpha"] is None else p["alpha"]
+            if p["alpha"] is None:
+                raise ValueError("alpha must be provided via params={'alpha': ...}")
+            alpha = p["alpha"]
 
             f_safe = f.clamp(min=1e-8)
             m_safe = m.clamp(min=1e-8)
@@ -583,7 +573,9 @@ class Multihead(nn.Module):
                 f = self.f
             if m is None:
                 m = self.m
-            alpha = self.alpha if p["alpha"] is None else p["alpha"]
+            if p["alpha"] is None:
+                raise ValueError("alpha must be provided via params={'alpha': ...}")
+            alpha = p["alpha"]
             exp_f = alpha - beta
             # Analytical derivative: dh/dt = -M * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
             dhdt = -p["M"] * (
