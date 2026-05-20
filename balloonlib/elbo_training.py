@@ -38,6 +38,7 @@ from tqdm import tqdm
 
 from balloonlib import config
 from balloonlib.training import loss as pinn_loss
+from balloonlib.utils import Curriculum_Learning, Dynamic_amplitude
 from balloonlib.data import segmentData, experimental_stims
 from balloonlib.plotting import plot_balloon_fitting
 from balloonlib.balloon_latent_prior import (
@@ -70,16 +71,72 @@ ELBO_PRIOR_MEAN: Dict[str, float] = {
 }
 
 
-def make_ode_prior(init_log_std: float = -1.0) -> BalloonLatentPrior:
+def make_ode_prior(
+    init_log_std: float = -1.0,
+    fixed_params: Optional[Dict[str, float]] = None,
+) -> BalloonLatentPrior:
     """
-    Build a BalloonLatentPrior over the 5 ODE coupling parameters, initialised
-    at literature-informed means (ELBO_PRIOR_MEAN) with diagonal covariance
-    exp(init_log_std) · I in unconstrained space.
+    Build a BalloonLatentPrior over the ODE coupling parameters.
+
+    Parameters
+    ----------
+    init_log_std : float
+        Initial diagonal log-std in unconstrained space (default -1.0 → std ≈ 0.37).
+    fixed_params : dict, optional
+        Parameters to hold constant throughout training, e.g.
+        ``{"alpha": 0.4, "tau_m": 20.0}``.  These are excluded from the
+        Gaussian latent space; the remaining parameters are learned.
+        Keys must be drawn from ELBO_PARAM_SPEC.  Values must lie within
+        the parameter's support (validated here to catch typos early).
+
+    Returns
+    -------
+    BalloonLatentPrior
+        Prior with .fixed_params attribute carrying the constant values and
+        a latent space of size K = (number of ELBO params) - (number fixed).
     """
+    fixed = dict(fixed_params or {})
+
+    # --- Validate fixed keys against the known parameter set ---
+    unknown = set(fixed) - set(ELBO_PARAM_SPEC)
+    if unknown:
+        raise ValueError(
+            f"Unknown fixed_params keys: {sorted(unknown)}. "
+            f"Valid names are: {list(ELBO_PARAM_SPEC.keys())}"
+        )
+
+    # --- Check each fixed value lies within the parameter's support ---
+    for name, val in fixed.items():
+        spec = ELBO_PARAM_SPEC[name]
+        if spec == "positive" or (isinstance(spec, tuple) and spec[1] is None):
+            # log-transform support: (0, ∞)
+            if val <= 0:
+                raise ValueError(
+                    f"fixed_params['{name}'] = {val} is out of support (0, inf)."
+                )
+        else:
+            a, b = spec
+            if not (a < val < b):
+                raise ValueError(
+                    f"fixed_params['{name}'] = {val} is out of support ({a}, {b})."
+                )
+
+    # --- Build the latent spec and prior mean, excluding fixed parameters ---
+    latent_spec = {k: v for k, v in ELBO_PARAM_SPEC.items() if k not in fixed}
+    latent_mean = {k: v for k, v in ELBO_PRIOR_MEAN.items() if k not in fixed}
+
+    # At least one parameter must remain in the latent space
+    if len(latent_spec) == 0:
+        raise ValueError(
+            "All parameters are fixed — the latent space would be empty. "
+            "Leave at least one parameter out of fixed_params."
+        )
+
     return BalloonLatentPrior(
-        param_spec=ELBO_PARAM_SPEC,
-        prior_mean=ELBO_PRIOR_MEAN,
+        param_spec=latent_spec,
+        prior_mean=latent_mean,
         init_log_std=init_log_std,
+        fixed_params=fixed,   # stored on the prior for downstream access
     )
 
 
@@ -91,6 +148,7 @@ def theta_to_balloon_params(
     theta: Dict[str, torch.Tensor],
     base_params: dict,
     cmro2_ratio: float = 0.25,
+    fixed_params: Optional[Dict[str, float]] = None,
 ) -> dict:
     """
     Map a posterior sample θ (physical space, scalar tensors) into a
@@ -100,31 +158,51 @@ def theta_to_balloon_params(
     ----------
     theta : dict
         Output of BalloonPosterior.rsample(n=1), squeezed to scalar tensors.
-        Required keys: 'epsilon_n', 'kappa', 'gamma', 'tau_0', 'tau_m', 'alpha'.
+        Contains only the *latent* parameter keys.
     base_params : dict
         Fixed Balloon_params entries: 'I', 't', 't_scale',
         'time_border_mask', 'first_non_zero_t'.
     cmro2_ratio : float
         CMRO2-to-CBF amplitude ratio (fixed at literature value 0.25).
+    fixed_params : dict, optional
+        Parameters held constant (from prior.fixed_params).  These are
+        merged into the lookup dict alongside the sampled values so the
+        rest of the mapping logic can treat all parameters uniformly.
 
     Returns
     -------
     dict
-        Complete Balloon_params dict; all sampled tensors remain in the
+        Complete Balloon_params dict; sampled tensors remain in the
         computation graph so gradients flow back to posterior parameters.
     """
     p = dict(base_params)  # shallow copy — fixed tensors shared, sampled ones new
 
-    eps_n = theta["epsilon_n"].squeeze()
-    kappa = theta["kappa"].squeeze()
-    gamma = theta["gamma"].squeeze()
+    # Merge sampled values with any user-fixed constants.
+    # Fixed values are wrapped as scalar tensors so that loss() can call
+    # .unsqueeze(0) and index them exactly like the sampled counterparts.
+    ref = base_params["I"]  # use impulse tensor as device/dtype reference
+    merged: Dict[str, torch.Tensor] = dict(theta)
+    for name, val in (fixed_params or {}).items():
+        merged[name] = torch.as_tensor(val, device=ref.device, dtype=ref.dtype)
 
+    # --- Map each (possibly merged) parameter into Balloon_params format ---
+
+    # CBF amplitude; CMRO2 is a fixed fraction of CBF (Friston 2003)
+    eps_n = merged["epsilon_n"].squeeze()
     p["lambdar_list"] = torch.stack([eps_n, cmro2_ratio * eps_n])
-    p["kappa_list"]   = torch.stack([kappa, kappa])
-    p["gamma_list"]   = torch.stack([gamma, gamma])
-    p["tau_MTT_list"] = theta["tau_0"].squeeze()
-    p["tau_m_list"]   = theta["tau_m"].squeeze()
-    p["alpha"]        = theta["alpha"].squeeze()
+
+    # Signal decay and autoregulatory feedback are shared between f and m heads
+    kappa = merged["kappa"].squeeze()
+    gamma = merged["gamma"].squeeze()
+    p["kappa_list"] = torch.stack([kappa, kappa])
+    p["gamma_list"] = torch.stack([gamma, gamma])
+
+    # Mean transit time and viscoelastic time constant are scalars in loss()
+    p["tau_MTT_list"] = merged["tau_0"].squeeze()
+    p["tau_m_list"]   = merged["tau_m"].squeeze()
+
+    # Grubb exponent — used in both fout() and hDavis()
+    p["alpha"] = merged["alpha"].squeeze()
 
     return p
 
@@ -143,13 +221,21 @@ def _beta_schedule(step: int, warmup_iters: int, beta_max: float) -> float:
 # ---------------------------------------------------------------------------
 
 def _posterior_mode_str(posterior: BalloonPosterior) -> str:
-    """Format the posterior mode (mu_q pushed to physical space) as a string."""
+    """Format the posterior mode (mu_q pushed to physical space) as a string.
+
+    Latent parameters show their current learned mode; fixed parameters
+    are appended as constants so the full parameter set is always visible.
+    """
     prior = posterior.prior
     with torch.no_grad():
+        # Latent parameters: push the posterior mean through the inverse bijection
         parts = [
             f"{name}={prior._transforms[j](posterior.mu_q[j]).item():.4f}"
             for j, name in enumerate(prior.param_names)
         ]
+    # Fixed parameters: just echo their constant value
+    for name, val in prior.fixed_params.items():
+        parts.append(f"{name}={val:.4f}[fixed]")
     return "  ".join(parts)
 
 
@@ -259,8 +345,11 @@ def elbo_train(
 
     # ---- Loss amplitude factors (mirrors train()) -------------------------
     amp = {"ode": 1e1, "bold": 1e0, "ic": 1e0, "border": 1e0, "other": 1e0}
-    amp_p = torch.distributions.beta.Beta(6, 2)
-
+    amp_p_distro = torch.distributions.beta.Beta(6, 2)
+    amp_p_sample = amp_p_distro.sample([num_iter])
+    amp_0 = 1e3  # dynamic amplitude initialised at warm-up value
+    amp_i = None
+    soft_amp = Curriculum_Learning(from_val = 1, to_val=0)
     # ---- Optimiser -------------------------------------------------------
     if optimizer is None:
         optimizer = torch.optim.Adam(
@@ -347,18 +436,22 @@ def elbo_train(
 
     # ---- Training loop ---------------------------------------------------
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
-    amp_i  = 1e3  # dynamic amplitude initialised at warm-up value
-
     for i in tqdm(range(num_iter)):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        # 1. Reparameterised sample → Balloon_params for this step
+        # 1. Reparameterised sample → Balloon_params for this step.
+        #    Only the latent parameters are in theta; fixed_params supplies the rest.
         theta, _ = posterior.rsample(n=1)
         theta     = {k: v.squeeze(0) for k, v in theta.items()}
 
         t_step    = torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())
-        balloon_i = theta_to_balloon_params(theta, base_balloon_params, cmro2_ratio)
+        balloon_i = theta_to_balloon_params(
+            theta,
+            base_balloon_params,
+            cmro2_ratio,
+            fixed_params=posterior.prior.fixed_params,  # constants stored on the prior
+        )
         balloon_i["t"] = t_step
 
         # 2. PINN composite loss + KL inside autocast
@@ -379,22 +472,20 @@ def elbo_train(
             elbo_total = loss_dict["total"] + beta_i * kl
 
         # 3. Dynamic amplitude adjustment (mirrors train())
-        if i <= 100:
-            amp_i = 1e3
-        elif len(loss_trace["bold"]) >= 11:
-            amp_pi = amp_p.sample()
-            denom  = np.mean(
-                loss_trace["ode"][-11:-1]
-                + loss_trace["ic"][-11:-1]
-                + loss_trace["border"][-11:-1]
-            )
-            if denom > 0:
-                tmp    = np.mean(loss_trace["bold"][-11:-1]) / denom
-                amp_i  = (amp_pi.item() * amp_i + (1 - amp_pi.item()) * tmp)
-
+        if amp_i is None:
+            amp_i = amp_0
+        # dynamic estimate
+        amp_dyn = Dynamic_amplitude(amp_i, loss_trace,
+                    iter=i, beta_samples=amp_p_sample,)
+        # normalized curriculum progress
+        progress = 100*i / num_iter
+        # smooth warm-up gate
+        gate = soft_amp(progress)
+        # interpolate between warm-up and dynamic regime
+        amp_i = gate * amp_0 + (1.0 - gate) * amp_dyn
         for k in loss_weights:
             if k != "bold" and loss_weights["bold"][0] > 0.0:
-                amp[k] = max(1.0, round(amp_i, 1))
+                amp[k] = max(1.0, round(amp_i.item(), 1))
 
         # 4. Backward through PINN weights + posterior (mu_q, L_q)
         scaler.scale(elbo_total).backward()

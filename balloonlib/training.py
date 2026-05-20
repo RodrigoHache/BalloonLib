@@ -365,14 +365,14 @@ def loss(
     Balloon = torch.cat([hrf_pinn, model.dpredt(dv=dvdt, dq=dqdt)], dim=1)
     Balloon_Davis_v = meFn(davisv, Balloon)
     # Davis_v against Davis_f
-    # davisf = torch.cat([model.hDavis(volume=False, params=_alpha_params), model.dhDavis(df=dfindt, dm=dmdt, volume=False, params=_alpha_params)], dim=1)
-    # Davis_Davis = meFn(davisf, davisv)
+    davisf = torch.cat([model.hDavis(volume=False, params=_alpha_params), model.dhDavis(df=dfindt, dm=dmdt, volume=False, params=_alpha_params)], dim=1)
+    Davis_Davis = meFn(davisf, davisv)
     # derivative of log(Davis_v)=log(Davis_f)
     lside = alpha*(dfindt/model.f)-(dvdt/model.v)
     rside = model.beta *((dfindt/model.f)+(dqdt/model.q)-(dvdt/model.v)-(dmdt/model.m))
     d_lDavis_Davis = meFn(lside, rside) 
     
-    other_loss =  Balloon_Davis_v + d_lDavis_Davis #+ Davis_Davis
+    other_loss =  Balloon_Davis_v + d_lDavis_Davis + Davis_Davis
 
     max_elements = Balloon_params["I"].size()[0]
     # Initial condition and boundary losses

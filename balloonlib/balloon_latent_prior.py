@@ -195,8 +195,20 @@ class BalloonLatentPrior(PyroModule):
         param_spec: ParamSpec = BALLOON_PARAM_SPEC,
         prior_mean: Optional[Dict[str, float]] = None,
         init_log_std: float = -1.0,
+        fixed_params: Optional[Dict[str, float]] = None,
     ):
         super().__init__()
+
+        # Parameters held at a constant value throughout training (not part of the Gaussian)
+        self.fixed_params: Dict[str, float] = dict(fixed_params or {})
+
+        # A parameter cannot be both latent (in param_spec) and fixed — catch this early
+        overlap = set(self.fixed_params) & set(param_spec)
+        if overlap:
+            raise ValueError(
+                f"fixed_params keys {sorted(overlap)} also appear in param_spec. "
+                "Remove them from param_spec or from fixed_params."
+            )
 
         self.param_names: List[str] = list(param_spec.keys())
         self.param_spec:  ParamSpec = param_spec
@@ -396,6 +408,7 @@ class BalloonLatentPrior(PyroModule):
                 "std_transformed":        self.std_in_transformed_space.detach().cpu(),
                 "correlation_matrix":     self.correlation.detach().cpu(),
                 "L_cholesky":             self.L.detach().cpu(),
+                "fixed_params":           dict(self.fixed_params),
             }
 
     def print_summary(self) -> None:
@@ -418,6 +431,10 @@ class BalloonLatentPrior(PyroModule):
         for i, name in enumerate(s["param_names"]):
             row = " ".join(f"{C[i, j].item():>8.3f}" for j in range(self.K))
             print(f"  {name:<12} {row}")
+        if s["fixed_params"]:
+            print(f"\nFixed parameters (not sampled):")
+            for name, val in s["fixed_params"].items():
+                print(f"  {name:<14} {val}")
         print(f"{'='*60}\n")
 
 

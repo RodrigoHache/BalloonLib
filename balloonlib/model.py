@@ -506,7 +506,7 @@ class Multihead(nn.Module):
             BOLD signal: ``A * (1 - f^(α-β) * m^β)``.
         """
         p = {**self.Davis_params, **(params or {})}
-        beta = self.beta if p["beta"] is None else p["beta"]
+        beta = self.beta.detach() if p["beta"] is None else p["beta"]
         if volume is False:
             if f is None:
                 f = self.f
@@ -515,12 +515,12 @@ class Multihead(nn.Module):
 
             if p["alpha"] is None:
                 raise ValueError("alpha must be provided via params={'alpha': ...}")
-            alpha = p["alpha"]
+            alpha = p["alpha"].detach()
 
             f_safe = f.clamp(min=1e-8)
             m_safe = m.clamp(min=1e-8)
             exp_fm = alpha - beta
-            return p["M"] * (
+            return p["M"].detach() * (
                 1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * beta)
             )
         else:
@@ -567,7 +567,7 @@ class Multihead(nn.Module):
             Time derivative dh/dt of the Davis BOLD signal.
         """
         p = {**self.Davis_params, **(params or {})}
-        beta = self.beta if p["beta"] is None else p["beta"]
+        beta = self.beta.detach() if p["beta"] is None else p["beta"]
         if volume is False:
             if f is None:
                 f = self.f
@@ -576,9 +576,9 @@ class Multihead(nn.Module):
             if p["alpha"] is None:
                 raise ValueError("alpha must be provided via params={'alpha': ...}")
             alpha = p["alpha"]
-            exp_f = alpha - beta
+            exp_f = alpha.detach() - beta
             # Analytical derivative: dh/dt = -M * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
-            dhdt = -p["M"] * (
+            dhdt = -p["M"].detach() * (
                 exp_f * (f ** (exp_f - 1)) * (m**beta) * df
                 + beta * (f**exp_f) * (m ** (beta - 1)) * dm
             )

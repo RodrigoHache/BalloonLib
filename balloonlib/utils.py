@@ -363,3 +363,69 @@ def tofit(stim, hrf, time_max, dt=0.01):
     test_time = torch.arange(0, time_max, dt, device=stim.device)
     test = pytorch_convolve(stim, hrf, mode="full", flip=True)[: test_time.size(0)]
     return test, test_time
+
+class Curriculum_Learning():
+    """Differentiable soft clamp mapping unconstrained input to (from_val, to_val).
+    Replaces ``torch.clamp``. Uses a scaled sigmoid to produce a smooth,
+     strictly bounded output with well-defined gradients everywhere.
+
+     The transformation is:
+         out = from_val + (to_val - from_val) * sigmoid(sharpness * x)
+
+     Parameters
+     ----------
+     from_val : float
+         Lower asymptotic bound of the output range.
+     to_val : float
+         Upper asymptotic bound of the output range.
+     sharpness : float, optional
+         Controls the steepness of the sigmoid transition near the bounds.
+         Higher values approximate a hard clamp more closely.
+         Default is 1.0.
+
+     Notes
+     -----
+     - The input ``x`` is unconstrained and lives in (-inf, +inf).
+     - The output is strictly inside (from_val, to_val); the bounds are
+       never exactly reached.
+     - For use with bounded parameters (e.g. loss weights or amp), initialise the 
+       raw parameter near zero so that the
+       initial output sits near the midpoint of [from_val, to_val].
+     - Gradient magnitude is maximal at x=0 and decays symmetrically
+       toward the bounds; choose sharpness to avoid premature saturation.
+
+     Examples
+     --------
+     >>> clamp = SoftClamp(from_val=0.1, to_val=0.5, sharpness=5.0)
+     >>> alpha_raw = torch.tensor(0.0)
+     >>> alpha = clamp(alpha_raw)  # yields ~0.3, the midpoint
+    """
+
+    def __init__(self, from_val: float, to_val: float, sharpness: float = 1.0):
+        self.from_val = from_val
+        self.to_val = to_val
+        self.sharpness = sharpness
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.as_tensor(x)
+        return self.from_val + (self.to_val - self.from_val) * torch.sigmoid(self.sharpness * x)
+
+
+def Dynamic_amplitude(amp_i, loss_trace:dict, iter:int = 0, 
+                back_steps:int = 11, 
+                beta_samples:torch.Tensor=torch.tensor([0]))-> torch.Tensor:
+    if iter < back_steps:
+        return amp_i
+    
+    amp_pi = beta_samples[iter]
+    denom  = np.mean(
+                loss_trace["ode"][-back_steps:-1]
+                + loss_trace["ic"][-back_steps:-1]
+                + loss_trace["border"][-back_steps:-1]
+            )
+    if denom <= 0:
+        return amp_i
+    tmp    = np.mean(loss_trace["bold"][-back_steps:-1]) / denom
+    amp_i  = (amp_pi.item() * amp_i + (1 - amp_pi.item()) * tmp)
+    
+    return amp_i

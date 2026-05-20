@@ -29,6 +29,7 @@ dependencies = [
     "matplotlib>=3.5",
     "tqdm>=4.65",
     "pandas>=1.5",
+    "pyro-ppl>=1.8",   # Bayesian latent prior and posterior (BalloonLatentPrior)
 ]
 
 [project.optional-dependencies]
