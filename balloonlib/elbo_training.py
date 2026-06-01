@@ -37,8 +37,9 @@ import torch
 from tqdm import tqdm
 
 from balloonlib import config
+from balloonlib.physics import balloon_full_rk4_torch
 from balloonlib.training import loss as pinn_loss
-from balloonlib.utils import Curriculum_Learning, Dynamic_amplitude
+from balloonlib.utils import Curriculum_Learning, Dynamic_amplitude, SaveBestModel
 from balloonlib.data import segmentData, experimental_stims
 from balloonlib.plotting import plot_balloon_fitting
 from balloonlib.balloon_latent_prior import (
@@ -258,6 +259,7 @@ def elbo_train(
     random: bool = False,
     cmro2_ratio: float = 0.25,
     every: int = 500,
+    rk4_every: int = 100,
     dtype: Optional[torch.dtype] = None,
     device=None,
 ) -> Dict[str, List[float]]:
@@ -349,7 +351,7 @@ def elbo_train(
     amp_p_sample = amp_p_distro.sample([num_iter])
     amp_0 = 1e3  # dynamic amplitude initialised at warm-up value
     amp_i = None
-    soft_amp = Curriculum_Learning(from_val = 1, to_val=0)
+    soft_amp = Curriculum_Learning(from_val = 0, to_val=1)
     # ---- Optimiser -------------------------------------------------------
     if optimizer is None:
         optimizer = torch.optim.Adam(
@@ -374,11 +376,10 @@ def elbo_train(
     })
 
     # ---- Data preprocessing (mirrors train()) ----------------------------
-    data_params["Bold_Signal"] = (
+    if "Bold_Signal" in data_params:
+        data_params["Bold_Signal"] = (
         torch.as_tensor(data_params["Bold_Signal"]).to(dtype).view(-1, 1)
     )
-
-    if "Bold_Signal" in data_params:
         time_bf_stim = data_params["TR"]
         Bold_segments, time_corrected = segmentData(
             data_params["Bold_Signal"],
@@ -434,6 +435,12 @@ def elbo_train(
     loss_trace = {k: [] for k in component_keys}
     loss_trace.update({"pinn_total": [], "kl": [], "elbo_total": []})
 
+    # ---- SaveBestModel initialisation ---------------------------------------
+    save_best_model = SaveBestModel()
+
+    # ---- RK4 reference cache --------------------------------------------
+    _rk4_cache: dict = {}
+
     # ---- Training loop ---------------------------------------------------
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     for i in tqdm(range(num_iter)):
@@ -453,6 +460,19 @@ def elbo_train(
             fixed_params=posterior.prior.fixed_params,  # constants stored on the prior
         )
         balloon_i["t"] = t_step
+        if (i % rk4_every) == 0 or "result" not in _rk4_cache:
+            with torch.no_grad():
+                _rk4_cache["result"] = balloon_full_rk4_torch(
+                    I=base_balloon_params["I"],
+                    AmpI_f=balloon_i["lambdar_list"][0],
+                    AmpI_m=balloon_i["lambdar_list"][1],
+                    kappa=balloon_i["kappa_list"][0],
+                    gamma=balloon_i["gamma_list"][0],
+                    tau_MTT=balloon_i["tau_MTT_list"],
+                    alpha=balloon_i["alpha"],
+                    tau_m=balloon_i["tau_m_list"],
+                )
+        balloon_i["rk4_balloon"] = _rk4_cache["result"]
 
         # 2. PINN composite loss + KL inside autocast
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
@@ -477,12 +497,11 @@ def elbo_train(
         # dynamic estimate
         amp_dyn = Dynamic_amplitude(amp_i, loss_trace,
                     iter=i, beta_samples=amp_p_sample,)
-        # normalized curriculum progress
-        progress = 100*i / num_iter
+        
         # smooth warm-up gate
-        gate = soft_amp(progress)
+        gate = soft_amp(0.05*(i-100))
         # interpolate between warm-up and dynamic regime
-        amp_i = gate * amp_0 + (1.0 - gate) * amp_dyn
+        amp_i = (1.0 - gate) * amp_0 + gate * amp_dyn
         for k in loss_weights:
             if k != "bold" and loss_weights["bold"][0] > 0.0:
                 amp[k] = max(1.0, round(amp_i.item(), 1))
@@ -507,7 +526,16 @@ def elbo_train(
         loss_trace["kl"].append(kl.detach().item())
         loss_trace["elbo_total"].append(elbo_total.detach().item())
 
-        # 6. Progress
+        # 6. Save best model 
+        if i > 800:
+            save_best_model((
+                amp["ode"]  * loss_weights["ode"][-1]  * loss_dict["ode"]#+
+                #amp["bold"] * loss_weights["bold"][-1] * loss_dict["bold"]+
+                #amp["other"]* loss_weights["other"][-1]* loss_dict["other"]
+                ).detach().item(),
+                i, model#, optimizer #, criterion
+            )
+        # 7. Progress
         if every != 0 and (i + 1) % every == 0:
             print(
                 f"\n[{i+1}/{num_iter}]  "

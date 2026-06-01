@@ -30,6 +30,7 @@ dependencies = [
     "tqdm>=4.65",
     "pandas>=1.5",
     "pyro-ppl>=1.8",   # Bayesian latent prior and posterior (BalloonLatentPrior)
+    "numba>=0.57",
 ]
 
 [project.optional-dependencies]

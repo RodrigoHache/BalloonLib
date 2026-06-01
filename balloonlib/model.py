@@ -137,6 +137,9 @@ class Multihead(nn.Module):
             "M": self.Davis_M,
         }
 
+        # theoretically tau_mtt(v*dqdt-qdvdt) = vm-qf but we have found that
+        # tau_mtt(v*dqdt-qdvdt) = k(vm-qf) if 10 for pinn results 
+
         # Determine input dimension
         base_input_dim = 2 if self.impulse else 1
 
@@ -318,7 +321,7 @@ class Multihead(nn.Module):
         #   nns = [0,1] -> v_arg = [outi[0] ,f]
         # else: v_arg = [outi[1] ,f]
         v_arg = torch.cat((outi[1 - self.nns[1]], self.f), axis=1)
-        q_arg = torch.cat((outi[1], -self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
+        q_arg = torch.cat((outi[1], self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
         core_arg = [v_arg, q_arg]
 
         self.v, self.q = [self.core_fn[i](self.Core[i](core_arg[i])) for i in range(2)]
@@ -506,21 +509,21 @@ class Multihead(nn.Module):
             BOLD signal: ``A * (1 - f^(α-β) * m^β)``.
         """
         p = {**self.Davis_params, **(params or {})}
-        beta = self.beta.detach() if p["beta"] is None else p["beta"]
+        beta = self.beta if p["beta"] is None else p["beta"]
         if volume is False:
             if f is None:
-                f = self.f
+                f = self.f.detach()
             if m is None:
-                m = self.m
+                m = self.m.detach()
 
             if p["alpha"] is None:
                 raise ValueError("alpha must be provided via params={'alpha': ...}")
-            alpha = p["alpha"].detach()
+            alpha = p["alpha"]
 
             f_safe = f.clamp(min=1e-8)
             m_safe = m.clamp(min=1e-8)
             exp_fm = alpha - beta
-            return p["M"].detach() * (
+            return p["M"] * (
                 1 - torch.exp(torch.log(f_safe) * exp_fm) * torch.exp(torch.log(m_safe) * beta)
             )
         else:
@@ -567,18 +570,18 @@ class Multihead(nn.Module):
             Time derivative dh/dt of the Davis BOLD signal.
         """
         p = {**self.Davis_params, **(params or {})}
-        beta = self.beta.detach() if p["beta"] is None else p["beta"]
+        beta = self.beta if p["beta"] is None else p["beta"]
         if volume is False:
             if f is None:
-                f = self.f
+                f = self.f.detach()
             if m is None:
-                m = self.m
+                m = self.m.detach()
             if p["alpha"] is None:
                 raise ValueError("alpha must be provided via params={'alpha': ...}")
             alpha = p["alpha"]
-            exp_f = alpha.detach() - beta
+            exp_f = alpha - beta
             # Analytical derivative: dh/dt = -M * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
-            dhdt = -p["M"].detach() * (
+            dhdt = -p["M"] * (
                 exp_f * (f ** (exp_f - 1)) * (m**beta) * df
                 + beta * (f**exp_f) * (m ** (beta - 1)) * dm
             )

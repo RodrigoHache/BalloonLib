@@ -379,7 +379,7 @@ def plotSignals(
 # ============================================================================
 
 
-def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
+def plot_trace(loss_trace: dict, title: str, step_size: int = 0, colors: list | None = None):
     """Plot training loss traces on a two-panel figure.
 
     Parameters
@@ -392,6 +392,10 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
         Figure super-title.
     step_size : int, optional
         Unused; reserved for future vertical-line annotations.
+    colors : list of color-specs or None
+        Five colours applied in order to: total, ode, ic, border, bold/other.
+        Any matplotlib-compatible spec (hex string, named colour, RGB tuple)
+        is accepted.  ``None`` uses the current matplotlib color cycle.
 
     Notes
     -----
@@ -399,8 +403,10 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
     Right panel: individual loss components (log scale).
     """
     for key, value in loss_trace.items():
-        if key == "total":
+        if key == "total" or key=='pinn_total':
             total_trace = value
+        elif key == "elbo_total":
+            elbo_trace = value
         elif key == "ode":
             ode_trace = value
         elif key == "ic":
@@ -411,8 +417,14 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
             bold_loss_trace = value
         elif key == "other":
             mmod_loss_trace = value
-        else:
-            raise ValueError("Unknown loss key: " + key)
+        # else:
+        #     raise ValueError("Unknown loss key: " + key)
+
+    # Default high-contrast palette (colorblind-safe)
+    if colors is None:
+        colors = ["#1A1A2E", "#E07A10", "#0077BB", "#CC3377", "#009966", "#666666"]
+    # Unpack: total, ode, ic, border, bold/other
+    c_total, c_bold, c_ode, c_ic, c_border, c_mixed = colors
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     fig.suptitle(title, fontsize=16)
@@ -422,19 +434,22 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
     xaxis = range(1, num_iter + 1)
 
     ax[0].set_yscale("log")
-    ax[0].plot(xaxis, total_trace, label="Total Loss")
+    ax[0].plot(xaxis, total_trace, color=c_total, label="Total Loss", alpha=0.85)
+    if "elbo_trace" in locals() and elbo_trace is not None:
+        ax[0].plot(xaxis, elbo_trace, label="Elbo Loss", alpha=0.85)
+
     ax[0].set_xlabel("Number of iterations", fontsize=14)
     ax[0].set_ylabel("Loss", fontsize=12)
     ax[0].set_title("Total Loss vs. Iteration")
     ax[0].legend()
 
     ax[1].set_yscale("log")
-    ax[1].plot(xaxis, ode_trace, label="ODE Loss", alpha=0.9)
-    ax[1].plot(xaxis, ic_trace, label="Dirichlet IC Loss", alpha=0.6)
-    ax[1].plot(xaxis, border_loss_trace, label="Cauchy IC Loss", alpha=0.3)
-    ax[1].plot(xaxis, mmod_loss_trace, label="Mixed Model Reg Loss", alpha=0.3)
     if bold_loss_trace is not None:
-        ax[1].plot(xaxis, bold_loss_trace, label="Data Loss", alpha=0.4)
+        ax[1].plot(xaxis, bold_loss_trace, color=c_bold, label="Data Loss", alpha=0.9)
+    ax[1].plot(xaxis, ode_trace, color=c_ode, label="ODE Loss", alpha=0.9)
+    ax[1].plot(xaxis, ic_trace, color=c_ic, label="Dirichlet IC Loss", alpha=0.7)
+    ax[1].plot(xaxis, border_loss_trace, color=c_border, label="Cauchy IC Loss", alpha=0.7)
+    ax[1].plot(xaxis, mmod_loss_trace, color=c_mixed, label="Mixed Model Reg Loss", alpha=0.6)
     ax[1].set_xlabel("Number of iterations", fontsize=14)
     ax[1].set_ylabel("Loss", fontsize=12)
     ax[1].set_ylim(1e-18, 1e2)
@@ -523,7 +538,7 @@ def plot_balloon_fitting(
     if first_non_zero_index is None:
         first_non_zero_index = 0
 
-    model.eval()
+    # model.eval()
     with torch.no_grad():
         pred, _ = model(inputs)
         r_pred = tensor2np(torch.cat([model.f, model.m], dim=1))

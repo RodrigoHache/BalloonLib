@@ -113,18 +113,21 @@ def _make_transform(spec_entry: Union[Tuple, str]) -> T.Transform:
         return T.ExpTransform()   # eta -> exp(eta) = theta
 
     a, b = spec_entry
-    # Compose: shift+scale to (0,1), then logit
-    # SigmoidTransform.inv  = logit  (maps (0,1) -> R)
+    # Widen the interval by 10 % on each side — mirrors _forward_bijection so
+    # the two functions are true inverses:
+    #   _forward_bijection : theta (physical) -> eta (unconstrained)
+    #   _make_transform     : eta             -> theta
+    # Without the same widening the round-trip theta -> eta -> theta would drift.
     scale = b - a
-    a_t = torch.tensor(float(a-0.1*scale))
-    b_t = torch.tensor(float(b+0.1*scale))
-    affine = T.AffineTransform(loc=a_t, scale=torch.tensor(scale))   # (0,1) -> (a^-,b^+)
-    logistic = T.SigmoidTransform()                                   # R -> (0,1)
-    # Full chain R -> (a,b):   theta = a + (b-a)*sigmoid(eta)
-    # We want the *forward* direction theta -> R for computing mu_init,
-    # and the *inverse* direction R -> theta for sampling.
-    # ComposeTransform([logistic, affine]):  R -> (0,1) -> (a^-,b^+)
-    return T.ComposeTransform([logistic, affine])   # inverse of the logit+rescale
+    a_wide = float(a) - 0.1 * scale          # left edge of widened interval
+    scale_wide = 1.2 * scale                  # width of widened interval (b-a + 20%)
+
+    # Step 1: R -> (0, 1)  via sigmoid
+    logistic = T.SigmoidTransform()
+    # Step 2: (0, 1) -> (a_wide, b_wide)  via affine shift+scale
+    affine = T.AffineTransform(loc=torch.tensor(a_wide), scale=torch.tensor(scale_wide))
+    # Composed: eta -> sigmoid(eta) -> a_wide + scale_wide * sigmoid(eta)
+    return T.ComposeTransform([logistic, affine])
 
 
 def _forward_bijection(theta: float, spec_entry) -> float:

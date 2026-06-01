@@ -15,9 +15,11 @@ from typing import Dict, List
 
 from balloonlib import config
 from balloonlib.physics import dfdt, weighted_temporal_ode_loss
+from balloonlib.utils import tensor2np
 from balloonlib.data import segmentData, experimental_stims
-from balloonlib.utils import timeBall, tofit
+from balloonlib.utils import np2tensor, timeBall, tofit, Curriculum_Learning, Dynamic_amplitude, SaveBestModel
 from balloonlib.plotting import plot_balloon_fitting
+from balloonlib.balloonmodellib_new import balloon_odeint, neurovascular_coupling_fm
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +140,6 @@ def loss_reweight_paranoid(
 # ---------------------------------------------------------------------------
 # Per-loss gradient analysis
 # ---------------------------------------------------------------------------
-
-
 def compute_per_loss_gradients(
     model,
     loss_dict,
@@ -213,7 +213,7 @@ def compute_per_loss_gradients(
 # Composite PINN loss
 # ---------------------------------------------------------------------------
 
-
+data_loss = nn.SmoothL1Loss(beta=5e-5)
 def loss(
     model,
     Balloon_params: dict,
@@ -260,8 +260,7 @@ def loss(
     # Evaluate model at sample points
     if model.impulse:
         inputs = torch.cat([Balloon_params["t"], Balloon_params["I"].view(-1, 1)], dim=1).view(
-            -1, 2
-        )
+            -1, 2)
     else:
         inputs = Balloon_params["t"].requires_grad_(True)
 
@@ -354,32 +353,31 @@ def loss(
         samples_index, _ = timeBall(data_params["Bold_data_time"], Bold_pinn_time)
         bold_pinn_sampled = bold_pinn[samples_index]
         offset = -torch.mean(bold_pinn_sampled - Bold_data)
+        # bold_loss = data_loss(offset + bold_pinn_sampled, Bold_data)
         bold_loss = meFn(offset + bold_pinn_sampled, Bold_data)
     else:
         bold_loss = torch.zeros_like(ode_loss, requires_grad=True)
 
     # # Physics violation penalties
     # Balloon HRF against Davis_v HRF
-    _alpha_params = {"alpha": alpha}
     davisv = torch.cat([model.hDavis(volume=True), model.dhDavis(df=dvdt, dm=dqdt, volume=True)], dim=1)
     Balloon = torch.cat([hrf_pinn, model.dpredt(dv=dvdt, dq=dqdt)], dim=1)
     Balloon_Davis_v = meFn(davisv, Balloon)
-    # Davis_v against Davis_f
-    davisf = torch.cat([model.hDavis(volume=False, params=_alpha_params), model.dhDavis(df=dfindt, dm=dmdt, volume=False, params=_alpha_params)], dim=1)
-    Davis_Davis = meFn(davisf, davisv)
-    # derivative of log(Davis_v)=log(Davis_f)
-    lside = alpha*(dfindt/model.f)-(dvdt/model.v)
-    rside = model.beta *((dfindt/model.f)+(dqdt/model.q)-(dvdt/model.v)-(dmdt/model.m))
-    d_lDavis_Davis = meFn(lside, rside) 
+    # ((1/q)*dq/dt)-((1/v)-dv/dt) = (1/tau)((m/q)-(f/v))
+    lside = tau_MTT*(model.v*dqdt - model.q*dvdt)
+    rside = model.v*model.m - model.q*model.f
+    lminusr = lside-rside
+    other_loss = meFn(lminusr, torch.zeros_like(lminusr))# + Balloon_Davis_v
+    if "rk4_balloon" in Balloon_params:
+        pinn_balloon = torch.cat([model.f, model.m, model.v, model.q], dim=1)
+        other_loss = other_loss + data_loss(Balloon_params["rk4_balloon"], pinn_balloon)
     
-    other_loss =  Balloon_Davis_v + d_lDavis_Davis + Davis_Davis
-
     max_elements = Balloon_params["I"].size()[0]
     # Initial condition and boundary losses
     if (Balloon_params["I"][Balloon_params["time_border_mask"]]).sum() == 0:
         tmp_index = torch.arange(max_elements)[Balloon_params["time_border_mask"]]
         output_border = torch.index_select(
-            torch.cat([model.f, model.m, model.v, model.q, hrf_pinn + 1, model.hDavis(volume=True)+1], dim=1),
+            torch.cat([model.f, model.m, model.v, model.q, hrf_pinn + 1], dim=1),
             dim=0,
             index=tmp_index,
         )
@@ -416,8 +414,6 @@ def loss(
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
-
-
 def train(
     model,
     optimizer,
@@ -469,6 +465,7 @@ def train(
     dict of {str: list of float}
         Merged loss trace (component traces + ``'total'`` key).
     """
+    # ---- Device / dtype defaults -----------------------------------------
     if device is None:
         device = config.device
     elif not isinstance(device, torch.device):
@@ -477,31 +474,40 @@ def train(
         dtype = config.dtype
     use_amp = device.type == "cuda"
 
-    amp = {
-        "ode": 1e1,
-        "bold": 1e0,
-        "ic": 1e0,
-        "border": 1e0,
-        "other":  1e0,
-    }
-    amp_p = torch.distributions.beta.Beta(6, 2)
-    loss_trace = {key: [] for key in loss_weights.keys()}
-    total_trace = {"total": []}
-    # data = {}
+    # ---- Loss weights default --------------------------------------------
+    if loss_weights is None:
+        loss_weights = {
+            "ode":    [0.6],
+            "bold":   [0.4],
+            "ic":     [1.0],
+            "border": [1.0],
+            "other":  [1.0],
+        }
+    # Ensure 'other' key is always present — loss() always accesses it
+    if "other" not in loss_weights:
+        loss_weights["other"] = [0.0]
 
-    if ("Bold_ode" in data_params) & ("Bold_Signal" in data_params):
-        raise TypeError("Bold and Bold_segments cannot both be included during training")
+    # ---- balloon params to tensor ----------------------------------------
+    Balloon_params = {k:np2tensor(v) if not isinstance(v, torch.Tensor) else v 
+                for k,v in Balloon_params.items()}
+    
+    # ---- Loss amplitude factors  -------------------------
+    amp = {"ode": 1e1, "bold": 1e0, "ic": 1e0, "border": 1e0, "other": 1e0}
+    amp_p_distro = torch.distributions.beta.Beta(6, 2)
+    amp_p_sample = amp_p_distro.sample([num_iter])
+    amp_0 = 1e3  # dynamic amplitude initialised at warm-up value
+    amp_i = None
+    soft_amp = Curriculum_Learning(from_val = 0, to_val=1)
 
-    # data.update({"I": Balloon_params["I"]})
-    # if "f_in" in data_params:
-    #     data["f_in"] = data_params["ft"]
-    # if "m" in data_params:
-    #     data["m"] = data_params["m"]
-    # if ("v" in data_params) and ("q" in data_params):
-    #     data["v"] = data_params["v"]
-    #     data["q"] = data_params["q"]
+    # ---- Optimiser -------------------------------------------------------
+    if optimizer is None:
+        optimizer = torch.optim.Adam(
+            list(model.parameters()),
+            lr=4e-3,
+        )
 
-    max_elements = Balloon_params["I"].size()[0]
+    # ---- Time tensors  ----------------------------
+    max_elements = Balloon_params["I"].size(0)
     first_non_zero_index = torch.argmax(Balloon_params["I"]) - 1
 
     pinn_time = (torch.arange(0, max_elements) / max_elements).requires_grad_(False).to(dtype)
@@ -515,18 +521,13 @@ def train(
                 (pinn_time.squeeze() <= pinn_time[first_non_zero_index])
                 | (pinn_time.squeeze() >= pinn_time[-1])
             ),
-        }
-    )
+        })
 
-    data_params["Bold_Signal"] = torch.as_tensor(data_params["Bold_Signal"]).to(dtype).view(-1, 1)
-
-    if not random:
-        epsilon = torch.zeros(num_iter)
-    else:
-        distr = torch.distributions.beta.Beta(5, 5)
-        epsilon = (distr.sample([num_iter]) - distr.mean) / max_elements
-
+    # ---- Data preprocessing ----------------------------
     if "Bold_Signal" in data_params:
+        data_params["Bold_Signal"] = (
+        torch.as_tensor(data_params["Bold_Signal"]).to(dtype).view(-1, 1)
+        )
         time_bf_stim = data_params["TR"]
         Bold_segments, time_corrected = segmentData(
             data_params["Bold_Signal"],
@@ -535,9 +536,7 @@ def train(
             t0s=data_params["t0"],
             TR=data_params["TR"],
         )
-        optimal_combinatory = round(len(Bold_segments) / 2)
-        data_params.update({"index_size": optimal_combinatory})
-
+        
         time_max = torch.ceil(torch.stack([i.max() for i in time_corrected]).max()).to(
             dtype=torch.int32
         )
@@ -551,10 +550,13 @@ def train(
         )
 
         n_elements = data_params["Bold_Signal"].shape[0] * data_params["TR"]
-        Bold_data_time = torch.arange(0, n_elements, data_params["TR"]) + data_params["t0"]
+        Bold_data_time = (
+            torch.arange(0, n_elements, data_params["TR"]) + data_params["t0"]
+        )
 
         Overall_stimuli, Overall_stim_time = experimental_stims(
-            data_params["Bold_Signal"].shape[0] + (data_params["t0"] // data_params["TR"]),
+            data_params["Bold_Signal"].shape[0] 
+            + (data_params["t0"] // data_params["TR"]),
             Sti_Onsets=data_params["Sti_Onsets"],
             TR=data_params["TR"],
             block_len=data_params["stim_length [seg]"],
@@ -568,24 +570,38 @@ def train(
                 "stimulus_time": stimulus_time,
                 "Overallstim": Overall_stimuli,
                 "Overall_stim_time": Overall_stim_time,
-            }
-        )
+            })
+
+    # ---- Stochastic collocation jitter -----------------------------------
+    if not random:
+        epsilon = torch.zeros(num_iter)
+    else:
+        distr = torch.distributions.beta.Beta(5, 5)
+        epsilon = (distr.sample([num_iter]) - distr.mean) / max_elements
+
+    # ---- Loss trace initialisation ---------------------------------------
+    component_keys = ["ode", "bold", "ic", "border", "other"]
+    loss_trace = {k: [] for k in component_keys}
+    loss_trace.update({"pinn_total": []})
+    # ---- SaveBestModel initialisation ---------------------------------------
+    save_best_model = SaveBestModel()
+
+    # ---- Training loop ---------------------------------------------------
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     for i in tqdm(range(num_iter)):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        # if "Bold_ode" in data_params:
-        #     index = training_data(data, num_points=30)
-        #     data_params.update({"index": index})
+        Balloon_params.update(
+            {"t": torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())}
+            )
 
-        Balloon_params.update({"t": torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())})
+        # 2. PINN composite loss inside autocast
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
             loss_dict = lossfn(
                 model,
                 Balloon_params=Balloon_params,
                 data_params=data_params,
-                # data=data,
                 loss_weights=loss_weights,
                 amp=amp,
                 domain=domain,
@@ -594,39 +610,47 @@ def train(
                 meFn=data_params["errorFn"],
             )
 
-        # Dynamic amplitude adjustment (activated after warm-up)
-        if i <= 100:
-            amp_i = 1e3
-        else:  # i > 100:
-            amp_pi = amp_p.sample()
-            tmp = np.mean(loss_trace["bold"][-11:-1]) / (
-                np.mean(
-                    loss_trace["ode"][-11:-1]
-                    + loss_trace["ic"][-11:-1]
-                    + loss_trace["border"][-11:-1]
-                )
-            )
-            amp_i = (amp_pi * amp_i + (1 - amp_pi) * tmp).item()
-
-        for k in loss_weights.keys():
+        # 3. Dynamic amplitude adjustment (activated after warm-up)
+        if amp_i is None:
+            amp_i = amp_0
+        # dynamic estimate
+        amp_dyn = Dynamic_amplitude(amp_i, loss_trace,
+                    iter=i, beta_samples=amp_p_sample,)
+        
+        # smooth warm-up gate
+        gate = soft_amp(0.05*(i-100))
+        # interpolate between warm-up and dynamic regime
+        amp_i = (1.0 - gate) * amp_0 + gate * amp_dyn
+        for k in loss_weights:
             if k != "bold" and loss_weights["bold"][0] > 0.0:
-                amp[k] = np.round(amp_i, 1) if np.round(amp_i, 1) > 1 else 1.0
+                amp[k] = max(1.0, round(amp_i.item(), 1))
 
+        # 4. Backward through PINN weights 
         scaler.scale(loss_dict["total"]).backward()
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm=1.0)
         scaler.step(optimizer)  # wraps optimizer.step()
         scaler.update()  # adjusts scale factor
 
         if scheduler is not None:
             scheduler.step()
-        total_trace["total"].append(loss_dict["total"].detach().item())
-        for name_t, name_d in zip(loss_trace.keys(), loss_dict.keys()):
-            if name_t == name_d:
-                loss_trace[name_t].append(loss_dict[name_d].detach().item())
-            else:
-                raise ValueError(f"Loss name mismatch: {name_t} != {name_d}")
+        
+        # 5. Record
+        for k in component_keys:
+            loss_trace[k].append(loss_dict[k].detach().item())
+        loss_trace["pinn_total"].append(loss_dict["total"].detach().item())
 
+        # 6. Save best model 
+        if i > 800:
+            save_best_model((
+                amp["ode"]  * loss_weights["ode"][-1]  * loss_dict["ode"]#+
+                #amp["bold"] * loss_weights["bold"][-1] * loss_dict["bold"]+
+                #amp["other"]* loss_weights["other"][-1]* loss_dict["other"]
+                ).detach().item(),
+                i, model#, optimizer #, criterion
+            )
+        # 7. Progress
         if every != 0 and (i + 1) % every == 0:
             print(f"{i + 1}th Iter:")
             print(
@@ -662,5 +686,5 @@ def train(
                 dtype=dtype,
             )
 
-    loss_trace.update(total_trace)
+
     return loss_trace
