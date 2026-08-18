@@ -13,15 +13,11 @@ import torch.nn as nn
 from tqdm import tqdm
 from typing import Dict, List
 
+from balloonlib import config
 from balloonlib.physics import dfdt, weighted_temporal_ode_loss
 from balloonlib.data import segmentData, experimental_stims
-from balloonlib.utils import timeBall, tofit
+from balloonlib.utils import np2tensor, timeBall, tofit, SigmoidClamp
 from balloonlib.plotting import plot_balloon_fitting
-
-# Module-level device / dtype (mirrors balloonpinnlib globals)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-use_amp = device.type == "cuda"
-dtype = torch.float32
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +34,7 @@ def loss_reweight_paranoid(
     temperature: float = 0.1,
     alpha: float = 0.999,
     rho: float = 0.95,
-    device: str = "cuda",
+    device=None,
     eps: float = 1e-12,
     validate: bool = True,
 ) -> Dict[str, List[float]]:
@@ -67,8 +63,8 @@ def loss_reweight_paranoid(
     rho : float
         Bernoulli probability for choosing the previous weight over the
         softmax-initial weight.
-    device : str
-        Computation device.
+    device : str, torch.device, or None
+        Computation device.  ``None`` uses :data:`balloonlib.config.device`.
     eps : float
         Clamping floor for numerical stability.
     validate : bool
@@ -79,6 +75,9 @@ def loss_reweight_paranoid(
     dict of {str: list of float}
         The *same* ``weights_history`` object with new values appended.
     """
+    if device is None:
+        device = config.device
+
     if validate:
         original_keys = set(weights_history.keys()) - set(keys_to_skip)
         original_lengths = {k: len(weights_history[k]) for k in original_keys}
@@ -212,8 +211,6 @@ def compute_per_loss_gradients(
 # ---------------------------------------------------------------------------
 # Composite PINN loss
 # ---------------------------------------------------------------------------
-
-
 def loss(
     model,
     Balloon_params: dict,
@@ -254,8 +251,7 @@ def loss(
     Returns
     -------
     dict of {str: torch.Tensor}
-        Loss dictionary with keys ``'total'``, ``'ode'``, ``'ic'``,
-        ``'border'``, ``'bold'``.
+        Loss dictionary with keys ``'total'``, ``'ode'``, ``'ic'``, ``'bold'``, ``'other'``.
     """
     # Evaluate model at sample points
     if model.impulse:
@@ -269,9 +265,9 @@ def loss(
     hrf_pinn = model.predictor()
 
     # Compute time derivatives
-    dfindt, dmdt, dvdt, dqdt, dpredt_num = [
+    dfindt, dmdt, dvdt, dqdt= [#, dpredt_num = [
         Balloon_params["t_scale"] * dfdt(signal=i.squeeze(), arg=Balloon_params["t"])
-        for i in [model.f, model.m, model.v, model.q, hrf_pinn.squeeze()]
+        for i in [model.f, model.m, model.v, model.q]#, hrf_pinn.squeeze()]
     ]
     d2findt2, d2mtdt2 = [
         Balloon_params["t_scale"] * dfdt(signal=d_dt, arg=Balloon_params["t"])
@@ -295,8 +291,8 @@ def loss(
                 stacklevel=2,
             )
     for _n, _t in zip(
-        ["dfindt", "dmdt", "dvdt", "dqdt", "d2findt2", "d2mtdt2", "dpredt_num"],
-        [dfindt, dmdt, dvdt, dqdt, d2findt2, d2mtdt2, dpredt_num],
+        ["dfindt", "dmdt", "dvdt", "dqdt", "d2findt2", "d2mtdt2"],#, "dpredt_num"],
+        [dfindt, dmdt, dvdt, dqdt, d2findt2, d2mtdt2]#, dpredt_num],
     ):
         if not _t.requires_grad:
             warnings.warn(
@@ -305,10 +301,10 @@ def loss(
                 stacklevel=2,
             )
 
-    if dpredt_num is None:
-        raise ValueError("dpredt_num is None")
-    if torch.isnan(dpredt_num).any():
-        raise ValueError("dpredt_num is NaN")
+    # if dpredt_num is None:
+    #     raise ValueError("dpredt_num is None")
+    # if torch.isnan(dpredt_num).any():
+    #     raise ValueError("dpredt_num is NaN")
 
     # ODE residual
     Impulse = Balloon_params["I"].reshape(-1, 1)
@@ -358,66 +354,43 @@ def loss(
         samples_index, _ = timeBall(data_params["Bold_data_time"], Bold_pinn_time)
         bold_pinn_sampled = bold_pinn[samples_index]
         offset = -torch.mean(bold_pinn_sampled - Bold_data)
-        bold_loss = meFn(offset + bold_pinn_sampled, Bold_data)
+        pre_stim = sum(samples_index<=torch.argmax(data_params["Overallstim"]))
+        
+        bold_loss = meFn(offset + bold_pinn_sampled[pre_stim:], Bold_data[pre_stim:])
     else:
         bold_loss = torch.zeros_like(ode_loss, requires_grad=True)
 
-    # n6 = len(Balloon_params["I"]) // 6
-
-    # # Physics violation penalties
-    # viol_df = -dfindt[:n6].squeeze()[dfindt[:n6].squeeze() <= 0]
-    # viol_dm = -dmdt[:n6].squeeze()[dmdt[:n6].squeeze() <= 0]
-    # viol_dv = -dvdt[:n6].squeeze()[dvdt[:n6].squeeze() <= 0]
-
-    # mask_f1 = (model.f >= 1).squeeze()
-    # viol_m1 = (1 - model.m.squeeze()[mask_f1])
-    # viol_m1 = viol_m1[viol_m1 > 0]
-
-    # viol_v = -model.v.squeeze()[model.v.squeeze() < 0]
-
-    # violations = [v for v in [viol_df, viol_dm, viol_dv, viol_m1, viol_v] if v.numel() > 0]
-
-    # if violations:
-    #     all_violations = torch.cat(violations)
-    #     other_loss = meFn(all_violations, torch.zeros_like(all_violations))
-    # else:
-    #     other_loss = ode_loss * 0.0  # stays on graph, zero contribution
+    # Physics violation penalties
+    other_loss = meFn(tau_MTT*(model.v*dqdt-model.q*dvdt), model.m*model.v-model.q*model.f)
 
     max_elements = Balloon_params["I"].size()[0]
 
     # Initial condition and boundary losses
     if (Balloon_params["I"][Balloon_params["time_border_mask"]]).sum() == 0:
         tmp_index = torch.arange(max_elements)[Balloon_params["time_border_mask"]]
-        output_border = torch.index_select(
-            torch.cat([model.f, model.m, model.v, model.q, hrf_pinn + 1], dim=1),
-            dim=0,
-            index=tmp_index,
-        )
-        ic_loss = Balloon_params["time_border_mask"].sum() * meFn(
-            output_border, torch.ones_like(output_border)
-        )
-
-        tmp_border = torch.cat([d2findt2, d2mtdt2, dfindt, dmdt, dvdt, dqdt, dpredt_num], dim=1)
-        doutputdt_border = torch.index_select(tmp_border, dim=0, index=tmp_index)
-        border_loss = meFn(doutputdt_border, torch.zeros_like(doutputdt_border))
+        w = len(tmp_index)**(0.5)
+        tmp_cauchy = torch.cat([w*(output-1), hrf_pinn, d2findt2, d2mtdt2, dfindt, dmdt, dvdt, dqdt], dim=1)#, dpredt_num], dim=1)
+        cauchy_ic = torch.index_select(tmp_cauchy, dim=0, index=tmp_index)
+        # cauchy_target =  torch.cat([torch.ones_like(cauchy_ic[:, :4]),  
+        #                             torch.zeros_like(cauchy_ic[:, 4:])], dim=1)
+        cauchy_target = torch.zeros_like(cauchy_ic)
+        ic_loss = meFn(cauchy_ic, cauchy_target)
+        
     else:
         ic_loss = torch.zeros_like(ode_loss, requires_grad=True)
-        border_loss = torch.zeros_like(ode_loss, requires_grad=True)
 
     loss_dict = {
         "ode": ode_loss,
         "bold": bold_loss,
         "ic": ic_loss,
-        "border": border_loss,
-        # "other":  other_loss,
+        "other":  other_loss,
     }
 
     loss_dict["total"] = (
         amp["ode"] * loss_weights["ode"][-1] * loss_dict["ode"]
         + amp["bold"] * loss_weights["bold"][-1] * loss_dict["bold"]
         + amp["ic"] * loss_weights["ic"][-1] * loss_dict["ic"]
-        + amp["border"] * loss_weights["border"][-1] * loss_dict["border"]
-        # + amp["other"]  * loss_weights["other"][-1]  * loss_dict["other"]
+        + amp["other"]  * loss_weights["other"][-1]  * loss_dict["other"]
     )
 
     return loss_dict
@@ -438,9 +411,10 @@ def train(
     domain=(0, 30),
     random=False,
     every=3,
-    loss_weights={"ode": [1.0], "ic": [1.0], "border": [1.0], "bold": [1.0]},  # , "other": [1.]},
+    loss_weights={"ode": [1.0], "ic": [1.0], "bold": [1.0], "other": [1.]},
     scheduler=None,
-    dtype=torch.float32,
+    dtype=None,
+    device=None,
 ):
     """Train the Multihead Balloon-PINN model.
 
@@ -468,37 +442,39 @@ def train(
         Initial per-component weight lists.
     scheduler : torch.optim.lr_scheduler or None
         Optional learning-rate scheduler.
-    dtype : torch.dtype
-        Tensor data type.
+    dtype : torch.dtype or None
+        Tensor data type.  ``None`` uses :data:`balloonlib.config.dtype`.
+    device : str, torch.device, or None
+        Computation device.  ``None`` uses :data:`balloonlib.config.device`.
 
     Returns
     -------
     dict of {str: list of float}
         Merged loss trace (component traces + ``'total'`` key).
     """
+    if device is None:
+        device = config.device
+    elif not isinstance(device, torch.device):
+        device = torch.device(device)
+    if dtype is None:
+        dtype = config.dtype
+    use_amp = False  # fp32 training only — GradScaler/autocast intentionally disabled.
+
     amp = {
         "ode": 1e1,
         "bold": 1e0,
         "ic": 1e0,
-        "border": 1e0,
-        # "other":  0e1,
+        "other": 1e0,
     }
-    amp_p = torch.distributions.beta.Beta(6, 2)
+    soft_amp = SigmoidClamp(from_val = 0, to_val=1)
+    amp_0 = 1e1
+    amp_i = 1e1
     loss_trace = {key: [] for key in loss_weights.keys()}
     total_trace = {"total": []}
     # data = {}
 
     if ("Bold_ode" in data_params) & ("Bold_Signal" in data_params):
         raise TypeError("Bold and Bold_segments cannot both be included during training")
-
-    # data.update({"I": Balloon_params["I"]})
-    # if "f_in" in data_params:
-    #     data["f_in"] = data_params["ft"]
-    # if "m" in data_params:
-    #     data["m"] = data_params["m"]
-    # if ("v" in data_params) and ("q" in data_params):
-    #     data["v"] = data_params["v"]
-    #     data["q"] = data_params["q"]
 
     max_elements = Balloon_params["I"].size()[0]
     first_non_zero_index = torch.argmax(Balloon_params["I"]) - 1
@@ -512,7 +488,7 @@ def train(
             "t_scale": (pinn_time[-1] - pinn_time[0]) / (domain[1] - domain[0]),
             "time_border_mask": (
                 (pinn_time.squeeze() <= pinn_time[first_non_zero_index])
-                | (pinn_time.squeeze() >= pinn_time[-1])
+                | (pinn_time.squeeze() >= pinn_time[-50])
             ),
         }
     )
@@ -569,22 +545,21 @@ def train(
                 "Overall_stim_time": Overall_stim_time,
             }
         )
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+    range_iter = np.arange(num_iter)
+    gate = soft_amp(0.05 * (range_iter - 100)).cpu()
+    
     for i in tqdm(range(num_iter)):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        # if "Bold_ode" in data_params:
-        #     index = training_data(data, num_points=30)
-        #     data_params.update({"index": index})
-
         Balloon_params.update({"t": torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())})
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+        # enabled=use_amp is False, so dtype is ignored and this runs in float32.
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
             loss_dict = lossfn(
                 model,
                 Balloon_params=Balloon_params,
                 data_params=data_params,
-                # data=data,
                 loss_weights=loss_weights,
                 amp=amp,
                 domain=domain,
@@ -594,19 +569,17 @@ def train(
             )
 
         # Dynamic amplitude adjustment (activated after warm-up)
-        if i <= 100:
-            amp_i = 1e3
-        else:  # i > 100:
-            amp_pi = amp_p.sample()
-            tmp = np.mean(loss_trace["bold"][-11:-1]) / (
-                np.mean(
-                    loss_trace["ode"][-11:-1]
-                    + loss_trace["ic"][-11:-1]
-                    + loss_trace["border"][-11:-1]
-                )
-            )
-            amp_i = (amp_pi * amp_i + (1 - amp_pi) * tmp).item()
-
+        if i > 1: 
+            t = -(i+2) if i < 10 else -11 
+            tmp = np.mean(loss_trace["bold"][t:-1]) / (
+                    np.mean(
+                        loss_trace["ode"][t:-1]
+                        + loss_trace["ic"][t:-1]
+                        )
+                    )
+            
+            amp_i = ((1-gate[i])*amp_0 + gate[i]*tmp).item()
+        
         for k in loss_weights.keys():
             if k != "bold" and loss_weights["bold"][0] > 0.0:
                 amp[k] = np.round(amp_i, 1) if np.round(amp_i, 1) > 1 else 1.0
@@ -614,12 +587,14 @@ def train(
         scaler.scale(loss_dict["total"]).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scale_before_step = scaler.get_scale()
         scaler.step(optimizer)  # wraps optimizer.step()
         scaler.update()  # adjusts scale factor
 
-        if scheduler is not None:
+        if scheduler is not None and scaler.get_scale() >= scale_before_step:
             scheduler.step()
         total_trace["total"].append(loss_dict["total"].detach().item())
+        
         for name_t, name_d in zip(loss_trace.keys(), loss_dict.keys()):
             if name_t == name_d:
                 loss_trace[name_t].append(loss_dict[name_d].detach().item())
@@ -629,22 +604,20 @@ def train(
         if every != 0 and (i + 1) % every == 0:
             print(f"{i + 1}th Iter:")
             print(
-                "total {:.4e}, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}".format(  # , other:{:.3e}".format(
+                "total {:.4e}, ode:{:.3e}, bold:{:.3e}, CIC:{:.3e}, other:{:.3e}".format(
                     loss_dict["total"].detach().item(),
                     loss_dict["ode"].detach().item(),
                     loss_dict["bold"].detach().item(),
                     loss_dict["ic"].detach().item(),
-                    loss_dict["border"].detach().item(),
-                    # loss_dict["other"].detach().item(),
+                    loss_dict["other"].detach().item(),
                 )
             )
             print(
-                "total weights, ode:{:.3e}, bold:{:.3e}, Dic:{:.3e}, Cic:{:.3e}".format(  # , other:{:.3e}".format(
+                "total weights, ode:{:.3e}, bold:{:.3e}, CIC:{:.3e}, other:{:.3e}".format(
                     loss_weights["ode"][-1],
                     loss_weights["bold"][-1],
                     loss_weights["ic"][-1],
-                    loss_weights["border"][-1],
-                    # loss_weights["other"][-1],
+                    loss_weights["other"][-1],
                 )
             )
             print("Physics amp", amp)
@@ -662,4 +635,17 @@ def train(
             )
 
     loss_trace.update(total_trace)
+
+    # Guarantee self.f/m/v/q reflect a full-precision forward pass over the
+    # complete, ordered time domain on exit — independent of `every` and of
+    # whatever precision the last autocast training step happened to use.
+    model.eval()
+    with torch.no_grad():
+        inputs = (
+            torch.cat([pinn_time, Balloon_params["I"].view(-1, 1)], dim=1)
+            if model.impulse else pinn_time
+        )
+        model(inputs)
+    model.train()
+
     return loss_trace

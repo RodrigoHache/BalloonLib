@@ -385,9 +385,8 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
     Parameters
     ----------
     loss_trace : dict
-        Dictionary with keys ``'total'``, ``'ode'``, ``'ic'``, ``'border'``,
-        ``'bold'``, and ``'other'``.  Each value is a list of scalar loss
-        values recorded per iteration.
+        Dictionary with keys ``'total'``, ``'ode'``, ``'ic'``,``'bold'``, and ``'other'``.  
+        Each value is a list of scalar loss values recorded per iteration.
     title : str
         Figure super-title.
     step_size : int, optional
@@ -405,10 +404,10 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
             ode_trace = value
         elif key == "ic":
             ic_trace = value
-        elif key == "border":
-            border_loss_trace = value
         elif key == "bold":
             bold_loss_trace = value
+        elif key == "other":
+            other_trace = value
         else:
             raise ValueError("Unknown loss key: " + key)
 
@@ -428,14 +427,14 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
 
     ax[1].set_yscale("log")
     ax[1].plot(xaxis, ode_trace, label="ODE Loss", alpha=0.9)
-    ax[1].plot(xaxis, ic_trace, label="Dirichlet IC Loss", alpha=0.6)
-    ax[1].plot(xaxis, border_loss_trace, label="Cauchy IC Loss", alpha=0.3)
+    ax[1].plot(xaxis, ic_trace, label="Cauchy IC Loss", alpha=0.3)
+    ax[1].plot(xaxis, other_trace, label="Phy-Reg Loss", alpha=0.3)
     if bold_loss_trace is not None:
         ax[1].plot(xaxis, bold_loss_trace, label="Data Loss", alpha=0.4)
     ax[1].set_xlabel("Number of iterations", fontsize=14)
     ax[1].set_ylabel("Loss", fontsize=12)
     ax[1].set_ylim(1e-18, 1e2)
-    ax[1].set_title("ODE, DIC, CIC and Data Loss vs. Iteration")
+    ax[1].set_title("ODE, CIC, Reg and Data Loss vs. Iteration")
     ax[1].legend(fontsize=12)
 
     plt.show()
@@ -582,7 +581,7 @@ def plot_balloon_fitting(
     ax0.axhline(y=1 + 1e-4, color="r", ls="--")
     ax0.axhline(y=1 - 1e-4, color="r", ls="--")
     ax0.xaxis.set_minor_locator(MultipleLocator(2.5))
-    ax0.grid(visible=True, which="both")
+    ax0.grid(visible=False, which="both")
     ax0.legend(fontsize=10)
     ax0.set_xlabel("PI time")
     ax0.set_title("f_in and m")
@@ -590,9 +589,10 @@ def plot_balloon_fitting(
     new_tticks = np.round(t_normalized[0].item() + (ax0.get_xticks() - t_plot[0]) / plot_scale, 2)[
         1:-1
     ]
-    ax0t.set_xlabel("NN time")
-    ax0t.set_xlim(new_tlims)
-    ax0t.set_xticks(new_tticks)
+    # ax0t.set_xlabel("NN time")
+    # ax0t.set_xlim(new_tlims)
+    # ax0t.set_xticks(new_tticks)
+    
 
     # Subplot 1: v and q
     ax1.plot(t_plot, vq_pred[:, 0], lw=1.5, alpha=0.7, label="PINN v")
@@ -622,17 +622,17 @@ def plot_balloon_fitting(
     ax1.axhline(y=1 + 1e-4, color="r", ls="--")
     ax1.axhline(y=1 - 1e-4, color="r", ls="--")
     ax1.xaxis.set_minor_locator(MultipleLocator(2.5))
-    ax1.grid(visible=True, which="both")
+    ax1.grid(visible=False, which="both")
     ax1.legend(fontsize=10)
     ax1.set_xlabel("PI time")
     ax1.set_title("v and q")
-    ax1t.set_xlabel("NN time")
-    ax1t.set_xlim(new_tlims)
-    ax1t.set_xticks(new_tticks)
+    # ax1t.set_xlabel("NN time")
+    # ax1t.set_xlim(new_tlims)
+    # ax1t.set_xticks(new_tticks)
 
     # Subplot 2: HRF
     ax2.plot(t_plot, hrf_pred_np, lw=1.5, alpha=0.7, label="PINN HRF")
-    ax2.plot(t_plot, hrf_pred_linear_np, lw=1.5, alpha=0.7, label="PINN HRF (linear)")
+    # ax2.plot(t_plot, hrf_pred_linear_np, lw=1.5, alpha=0.7, label="PINN HRF (linear)")
     if numerical_solutions is not None and "bold" in numerical_solutions:
         ax2.plot(
             t_plot,
@@ -643,16 +643,16 @@ def plot_balloon_fitting(
             label="Numerical HRF",
         )
     ax2.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
-    ax2.axhline(y=1e-4, color="r", ls="--")
-    ax2.axhline(y=-1e-4, color="r", ls="--")
-    ax2.xaxis.set_minor_locator(MultipleLocator(2.5))
-    ax2.grid(visible=True, which="both")
+    # ax2.axhline(y=1e-4, color="r", ls="--")
+    ax2.axhline(y=0, color="r", ls="--")
+    ax2.xaxis.set_minor_locator(MultipleLocator(5))
+    ax2.grid(visible=False, which="both")
     ax2.legend(fontsize=10)
     ax2.set_xlabel("PI time")
     ax2.set_title("HRF")
-    ax2t.set_xlabel("NN time")
-    ax2t.set_xlim(new_tlims)
-    ax2t.set_xticks(new_tticks)
+    # ax2t.set_xlabel("NN time")
+    # ax2t.set_xlim(new_tlims)
+    # ax2t.set_xticks(new_tticks)
 
     # Subplots 3 and 4: BOLD signal fitting (if requested)
     if show_bold_signal:
@@ -742,7 +742,7 @@ def plot_balloon_fitting(
 
         ax3.axvline(x=trial_time_np[torch.argmax(stimulus_single).item()], color="r", ls="--")
         ax3.xaxis.set_minor_locator(MultipleLocator(2.5))
-        ax3.grid(visible=True, which="both")
+        ax3.grid(visible=False, which="both")
         ax3.legend(fontsize=10)
         ax3.set_xlabel("time")
         ax3.set_title("Estimated BOLD, single stimulus")
@@ -751,6 +751,7 @@ def plot_balloon_fitting(
             Bold_arr = (
                 Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
             )
+            
             ax4.scatter(tensor2np(Bold_data_time), Bold_arr, label="data")
         ax4.plot(
             tensor2np(Bold_pinn_time), offset + tensor2np(Overall_bold_pinn), label="Estimated BOLD"
@@ -760,7 +761,7 @@ def plot_balloon_fitting(
         )
         ax4.xaxis.set_minor_locator(MultipleLocator(2.5))
         ax4.legend(fontsize=10, loc="lower center", ncol=3)
-        ax4.grid(visible=True, which="both")
+        ax4.grid(visible=False, which="both")
         ax4.set_title(f"BOLD fitting, estimation and data, after iteration n°:{iteration}")
 
     plt.show()
@@ -778,7 +779,7 @@ def plot_weights(
     ----------
     weights_history : dict of {str: list of float}
         Weight history per component (keys: ``'ode'``, ``'ic'``,
-        ``'border'``, ``'bold'``, ``'other'``).
+        ``'bold'``, ``'other'``).
     title : str
         Figure super-title.
     keys_to_skip : list of str
@@ -793,8 +794,8 @@ def plot_weights(
             ode_trace = value
         elif key == "ic":
             ic_trace = value
-        elif key == "border":
-            border_loss_trace = value
+        elif key == "other":
+            other_trace = value
         elif key == "bold":
             bold_loss_trace = value
         else:
@@ -812,7 +813,7 @@ def plot_weights(
 
     ax.plot(xaxis, ode_trace, label="ODE weights", alpha=0.9)
     ax.plot(xaxis, ic_trace, label="Dirichlet IC weights", alpha=0.6)
-    ax.plot(xaxis, border_loss_trace, label="Cauchy IC weights", alpha=0.3)
+    ax.plot(xaxis, other_trace, label="Cauchy IC weights", alpha=0.3)
     if bold_loss_trace is not None:
         ax.plot(xaxis, bold_loss_trace, label="Data weights", alpha=0.4)
 

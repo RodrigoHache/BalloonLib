@@ -9,7 +9,9 @@ import torch
 from balloonlib.balloonpinnlib import (
     DoubleGamma,
     dfdt,
+    experimental_stims,
     kge_stat,
+    np2tensor,
     normFn,
     pytorch_convolve,
     scale_domains,
@@ -230,3 +232,20 @@ class TestTrainingData:
         data = {"t": t_vec}
         with pytest.raises(ValueError):
             training_data(data, num_points=50, random=False)
+
+
+# ---------------------------------------------------------------------------
+# np2tensor / experimental_stims device consistency
+# ---------------------------------------------------------------------------
+
+
+class TestNp2TensorDevice:
+    def test_matches_experimental_stims_device(self):
+        # np2tensor previously ignored the module's `device` global, always
+        # returning a CPU tensor. experimental_stims defaults to "cuda".
+        # On a CUDA machine this mismatch made pytorch_convolve (via tofit)
+        # raise: "Input type (torch.cuda.FloatTensor) and weight type
+        # (torch.FloatTensor) should be the same".
+        hrf = np2tensor(np.random.randn(300))
+        stim, _ = experimental_stims(84, Sti_Onsets=[1.0, 20.0])
+        assert hrf.device.type == stim.device.type

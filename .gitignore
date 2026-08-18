@@ -58,3 +58,5 @@ scripts/*.png
 # Sphinx build output
 docs/_build/
 
+#Version kept only as backup 
+*.old

@@ -91,9 +91,6 @@ def hrf_description(
     tmp = hrf_data.squeeze() if isinstance(hrf_data, torch.Tensor) else np.squeeze(hrf_data)
     hrf = np.copy(tensor2np(tmp)) if isinstance(tmp, torch.Tensor) else np.copy(tmp)
 
-    # Threshold below which values are treated as zero
-    zero = 1e-4
-
     # Normalise to 2-D (n_signals, length)
     if hrf.ndim == 2:
         hrf = hrf if hrf.shape[0] < hrf.shape[1] else hrf.T
@@ -102,8 +99,8 @@ def hrf_description(
     else:
         raise TypeError("Several signals should be delivered using a order-2 tensor (matrix)")
 
-    # Truncate to 6 decimal places to avoid floating-point precision issues
-    hrf = np.trunc(hrf * 1e6) * 1e-6
+    # Round to 6 decimal places to avoid floating-point precision issues
+    hrf = np.round(hrf * 1e6) * 1e-6
     n_signals, signal_length = hrf.shape
 
     time = np.arange(0, max_time, max_time / signal_length)
@@ -126,12 +123,13 @@ def hrf_description(
     output["MU"] = np.min(hrf, axis=1)
     TTUi = np.argmin(hrf, axis=1)
     output["TTU[s]"] = time[TTUi]
-
+    # Threshold below which values are treated as zero
+    zero = (output["HP"]-output["MU"])*0.025
     for j in range(n_signals):
         before_max = hrf[j, : TTPi[j]]
         after_max = hrf[j, TTPi[j] :]
         half_max = output["HP"][j] / 2
-        half_max_min = half_max <= zero
+        half_max_min = half_max <= zero[j]
 
         exclusion = [
             before_max.shape == (0,),
@@ -154,14 +152,14 @@ def hrf_description(
 
             # Time to onset (TO)
             tmp_to = time[np.argmax(before_max > 0.1 * output["HP"][j])]
-            if (tmp_to <= first_non_zero_t) or (half_max <= zero):
+            if (tmp_to <= first_non_zero_t) or (half_max <= zero[j]):
                 output["TO[s]"][j] = np.nan
             else:
                 output["TO[s]"][j] = tmp_to
 
             # Area under the curve (AUC)
-            root_l = TTPi[j] - np.argmax(before_max[::-1] <= zero)
-            root_r = TTPi[j] + np.argmax(after_max <= zero)
+            root_l = TTPi[j] - np.argmax(before_max[::-1] <= zero[j])
+            root_r = TTPi[j] + np.argmax(after_max <= zero[j])
             dt = time[1] - time[0]
 
             if integration_rule == "trapezoidal":
@@ -172,12 +170,12 @@ def hrf_description(
                 output["AUC"][j] = dt * np.sum(hrf[j, root_l:root_r])
 
             # Undershoot descriptors (MU, TTU, TT0)
-            output["MU"][j] = np.nan if output["MU"][j] >= -1 * zero else output["MU"][j]
+            output["MU"][j] = np.nan if output["MU"][j] >= -1 * zero[j] else output["MU"][j]
 
-            if output["MU"][j] < -1 * zero:
+            if output["MU"][j] < -1 * zero[j]:
                 TTUi_j = TTPi[j] + np.argmin(after_max)
                 output["TTU[s]"][j] = time[TTUi_j]
-                tmp_tt0 = np.argmax(hrf[j, TTUi_j:] >= -1 * zero)
+                tmp_tt0 = np.argmax(hrf[j, TTUi_j:] >= -1 * zero[j])
                 if tmp_tt0 == 0:
                     output["TT0[s]"][j] = np.nan
                 else:

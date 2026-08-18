@@ -11,6 +11,8 @@ import pickle
 import numpy as np
 import torch
 
+from balloonlib import config
+
 # ---------------------------------------------------------------------------
 # Training index sampler
 # ---------------------------------------------------------------------------
@@ -212,8 +214,8 @@ def experimental_stims(
     block_len=3,
     stmxblck: int = 1,
     Hz=100,
-    dtype=torch.float32,
-    device="cuda",
+    dtype=None,
+    device=None,
 ):
     """Generate a binary stimulus pattern tensor at high temporal resolution.
 
@@ -234,10 +236,10 @@ def experimental_stims(
         Number of stimuli per block (used to scale amplitude).
     Hz : float
         Sampling frequency for the output stimulus (samples/second).
-    dtype : torch.dtype
-        Output tensor dtype.
-    device : str
-        Computation device (``'cuda'`` or ``'cpu'``).
+    dtype : torch.dtype or None
+        Output tensor dtype.  ``None`` uses :data:`balloonlib.config.dtype`.
+    device : str, torch.device, or None
+        Computation device.  ``None`` uses :data:`balloonlib.config.device`.
 
     Returns
     -------
@@ -246,6 +248,11 @@ def experimental_stims(
     stim_time : torch.Tensor
         Corresponding time vector, shape ``(total_samples,)``.
     """
+    if device is None:
+        device = config.device
+    if dtype is None:
+        dtype = config.dtype
+
     total_time = normDataSize * TR
     stim_time = torch.arange(0, total_time, 1 / Hz, dtype=dtype, device=device)
     stim_pattern = torch.zeros(stim_time.size(0), dtype=dtype, device=device)

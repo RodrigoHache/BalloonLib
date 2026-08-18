@@ -11,9 +11,6 @@ import torch.nn as nn
 from balloonlib.layers import FourierFeatureMapping, FactorizedLinear, SoftClamp
 from balloonlib.physics import dfdt
 
-# Global dtype (mirrors balloonpinnlib globals so Multihead methods are consistent)
-dtype = torch.float32
-
 
 class Multihead(nn.Module):
     """Multi-head Physics-Informed Neural Network for the Balloon haemodynamic model.
@@ -177,28 +174,21 @@ class Multihead(nn.Module):
         if not self.random_weightsMatrix:
             self.linear = {
                 "linear1": nn.Linear(first_layer_input, 128, bias=False, dtype=dtype),
-                # "linear2": nn.Linear(128, 128, bias=False, dtype=dtype),
                 "linear3": nn.Linear(128, 256, bias=False, dtype=dtype),
-                # "linear4": nn.Linear(256, 256, bias=False, dtype=dtype),
                 "linear5": nn.Linear(256, 512, bias=False, dtype=dtype),
-            }
-            self.nv_final_layers = nn.ModuleList(
-                [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
-            )
-            self.Core = nn.ModuleList(
-                [nn.Linear(256 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
-            )
+            }      
         else:
             self.linear = {
                 "linear1": FactorizedLinear(first_layer_input, 128, bias=False, dtype=dtype),
                 "linear3": FactorizedLinear(128, 256, bias=False, dtype=dtype),
                 "linear5": FactorizedLinear(256, 512, bias=False, dtype=dtype),
             }
-            self.nv_final_layers = nn.ModuleList(
+
+        self.nv_final_layers = nn.ModuleList(
                 # [FactorizedLinear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
                 [nn.Linear(256, 1, bias=True, dtype=dtype) for _ in range(2)]
             )
-            self.Core = nn.ModuleList(
+        self.Core = nn.ModuleList(
                 # [FactorizedLinear(257 + i, 1, bias=True, dtype=dtype) for i in range(2)]
                 [nn.Linear(256 + (1 + i), 1, bias=True, dtype=dtype) for i in range(2)]
             )
@@ -271,7 +261,7 @@ class Multihead(nn.Module):
             return torch.cat([f_low, f_mid, f_high], dim=-1)
         else:
             return self.fourier_mapping(x)
-
+    
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through the multi-head network.
 
@@ -289,13 +279,13 @@ class Multihead(nn.Module):
             Final hidden representation from the shared backbone, shape ``(N, 512)``.
         """
         x_encoded = self.encode_input(x)
-
+        
         if self.mode == "detach":
             with torch.no_grad():
                 out = self.Sequential(x_encoded)
         else:
             out = self.Sequential(x_encoded)
-
+            
         out_half = out.shape[1] // 2
         outi = [out[:, :out_half], out[:, out_half:]]
 

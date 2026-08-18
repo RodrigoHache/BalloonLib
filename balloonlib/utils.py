@@ -10,12 +10,7 @@ import torch
 import torch.nn.functional as F
 from scipy.stats import gamma
 
-# ---------------------------------------------------------------------------
-# Module-level device / dtype (mirrors balloonpinnlib.py globals)
-# ---------------------------------------------------------------------------
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dtype = torch.float32
+from balloonlib import config
 
 
 # ---------------------------------------------------------------------------
@@ -37,20 +32,33 @@ def tensor2np(tensor):
     return tensor.detach().cpu().numpy()
 
 
-def np2tensor(vector):
+def np2tensor(vector, requires_grad=True):
     """Turns an array into an torch.Tensor
 
     Parameter
     ---------
-    tensor : numpy.array
+    tensor : numpy.array or torch.Tensor
         data to transform to torch.Tensor
+    requires_grad : bool
+        Whether the returned tensor should track gradients.
 
     Returns
     -------
     transformed : torch.Tensor
         Data turned into a numpy.array
     """
-    transformed = torch.tensor(vector, requires_grad=True, dtype=torch.float32).view(-1, 1)
+    if isinstance(vector, torch.Tensor):
+        transformed = (
+            vector.clone()
+            .detach()
+            .to(dtype=torch.float32, device=config.device)
+            .requires_grad_(requires_grad)
+            .view(-1, 1)
+        )
+    else:
+        transformed = torch.tensor(
+            vector, requires_grad=requires_grad, dtype=torch.float32, device=config.device
+        ).view(-1, 1)
     return transformed
 
 
@@ -200,8 +208,6 @@ def scale_domains(
 # ---------------------------------------------------------------------------
 # HRF factory
 # ---------------------------------------------------------------------------
-
-
 def DoubleGamma(
     A1: float,
     alpha1: float,
@@ -244,8 +250,6 @@ def DoubleGamma(
 # ---------------------------------------------------------------------------
 # Temporal matching
 # ---------------------------------------------------------------------------
-
-
 @torch.compile()
 def timeBall(time_tensor1, time_tensor2, delta=0.005):
     """Find nearest-neighbour indices between two time tensors.
@@ -269,9 +273,8 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
     ball_index : None
         Reserved; always ``None``.
     """
-    t1 = time_tensor1.squeeze()
-    t2 = time_tensor2.squeeze()
-
+    t2 = time_tensor2.squeeze().contiguous()
+    t1 = time_tensor1.squeeze().contiguous().to(t2.device)
     # Binary search to find insertion points
     indices = torch.bucketize(t1, t2)
 
@@ -296,8 +299,6 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
 # ---------------------------------------------------------------------------
 # 1-D Convolution
 # ---------------------------------------------------------------------------
-
-
 @torch.compile()
 def pytorch_convolve(signal, kernel, mode="full", flip=False):
     """1-D convolution using :func:`torch.nn.functional.conv1d`.
@@ -340,8 +341,6 @@ def pytorch_convolve(signal, kernel, mode="full", flip=False):
 # ---------------------------------------------------------------------------
 # Stimulus–HRF convolution
 # ---------------------------------------------------------------------------
-
-
 def tofit(stim, hrf, time_max, dt=0.01):
     """Convolve stimulus with HRF to produce a predicted BOLD signal.
 
@@ -366,6 +365,55 @@ def tofit(stim, hrf, time_max, dt=0.01):
     """
     if isinstance(time_max, torch.Tensor):
         time_max = float(time_max.detach())
-    test_time = torch.arange(0, time_max, dt)
+    test_time = torch.arange(0, time_max, dt, device=stim.device, dtype=stim.dtype)
     test = pytorch_convolve(stim, hrf, mode="full", flip=True)[: test_time.size(0)]
     return test, test_time
+
+# ---------------------------------------------------------------------------
+# Soft transition
+# ---------------------------------------------------------------------------
+class SigmoidClamp():
+    """Differentiable soft clamp mapping unconstrained input to (from_val, to_val).
+    Replaces ``torch.clamp``. Uses a scaled sigmoid to produce a smooth,
+     strictly bounded output with well-defined gradients everywhere.
+
+     The transformation is:
+         out = from_val + (to_val - from_val) * sigmoid(sharpness * x)
+
+     Parameters
+     ----------
+     from_val : float
+         Lower asymptotic bound of the output range.
+     to_val : float
+         Upper asymptotic bound of the output range.
+     sharpness : float, optional
+         Controls the steepness of the sigmoid transition near the bounds.
+         Higher values approximate a hard clamp more closely.
+         Default is 1.0.
+
+     Notes
+     -----
+     - The input ``x`` is unconstrained and lives in (-inf, +inf).
+     - The output is strictly inside (from_val, to_val); the bounds are
+       never exactly reached.
+     - For use with bounded parameters (e.g. loss weights or amp), initialise the
+       raw parameter near zero so that the
+       initial output sits near the midpoint of [from_val, to_val].
+     - Gradient magnitude is maximal at x=0 and decays symmetrically
+       toward the bounds; choose sharpness to avoid premature saturation.
+
+     Examples
+     --------
+     >>> clamp = SigmoidClamp(from_val=0.1, to_val=0.5, sharpness=5.0)
+     >>> alpha_raw = torch.tensor(0.0)
+     >>> alpha = clamp(alpha_raw)  # yields ~0.3, the midpoint
+    """
+
+    def __init__(self, from_val: float, to_val: float, sharpness: float = 1.0):
+        self.from_val = from_val
+        self.to_val = to_val
+        self.sharpness = sharpness
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.as_tensor(x)
+        return self.from_val + (self.to_val - self.from_val) * torch.sigmoid(self.sharpness * x)

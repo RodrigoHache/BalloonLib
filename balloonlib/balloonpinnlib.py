@@ -75,6 +75,16 @@ from balloonlib.training import (  # noqa: F401
     train,
 )
 
+# analysis
+from balloonlib.balloon_analysis import (
+    load_loop,
+    describe_hrfs,
+    filter_implausible,
+    goodness_of_fit,
+    compare_groups,
+    run_analysis,
+)
+
 __all__ = [
     # layers
     "FourierFeatureMapping",
@@ -115,4 +125,11 @@ __all__ = [
     "compute_per_loss_gradients",
     "loss",
     "train",
+    # analysis
+    "load_loop",
+    "describe_hrfs",
+    "filter_implausible",
+    "goodness_of_fit",
+    "compare_groups",
+    "run_analysis",
 ]
