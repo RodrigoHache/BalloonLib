@@ -111,6 +111,10 @@ def compute_temporal_weights(
     ensuring earlier segments with high loss down-weight later segments.
     Segment 0 always receives weight 1.0.
 
+    The returned weights are detached from the autograd graph.  They are a
+    function of ``segment_losses`` but are held constant within a step; see
+    Wang et al., arXiv:2203.07404, Alg. 1.
+
     Parameters
     ----------
     segment_losses : torch.Tensor
@@ -127,7 +131,12 @@ def compute_temporal_weights(
     """
     dev = segment_losses.device if device is None else device
 
-    cumsum_losses = torch.cumsum(segment_losses, dim=0)
+    # Weights are treated as constants of the current step: the cumulative sum is
+    # detached so that autograd does not differentiate w_i through the preceding
+    # segment losses.  Differentiating through w_i would reward inflating early
+    # residuals in order to suppress the weights of later segments
+    # (Wang et al. 2024, arXiv:2203.07404, use lax.stop_gradient here).
+    cumsum_losses = torch.cumsum(segment_losses.detach(), dim=0)
 
     # Shift right by one: weights[i] = exp(-ε * cumsum[i-1]), weights[0] = 1
     exponents = torch.cat(
@@ -144,6 +153,7 @@ def weighted_temporal_ode_loss(
     epsilon: float = 1.0,
     normalize_weights: bool = True,
     device: str | None = None,
+    return_weights=False,
 ) -> torch.Tensor:
     """Compute ODE loss with causal temporal weighting.
 
@@ -180,4 +190,7 @@ def weighted_temporal_ode_loss(
     if normalize_weights:
         weights = weights / weights.shape[0]
 
-    return torch.sum(weights * segment_losses)
+    total = torch.sum(weights * segment_losses)
+    if return_weights:
+        return total, weights.detach(), segment_losses.detach()
+    return total

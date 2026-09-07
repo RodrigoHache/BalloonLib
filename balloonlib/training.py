@@ -222,6 +222,9 @@ def loss(
     random=False,
     dtype=torch.float32,
     meFn=nn.MSELoss(),
+    causal_n_segments: int = 30,        
+    causal_epsilon: float = 0.1,        
+    causal_normalize: bool = False,     
 ):
     """Compute the composite PINN loss (ODE + IC + BC + data).
 
@@ -341,7 +344,8 @@ def loss(
         raise ValueError("residual is NaN! Terminating training.")
 
     ode_loss = weighted_temporal_ode_loss(
-        residual, meFn, n_segments=30, epsilon=0.1, normalize_weights=False
+        residual, meFn, n_segments=causal_n_segments, 
+        epsilon=causal_epsilon, normalize_weights=causal_normalize
     )
 
     if "Bold_Signal" in data_params:

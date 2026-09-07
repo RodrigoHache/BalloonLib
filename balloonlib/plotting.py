@@ -537,15 +537,15 @@ def plot_balloon_fitting(
         ax2 = fig.add_subplot(gs[0:2, 2])
         ax3 = fig.add_subplot(gs[0:2, 3])
         ax4 = fig.add_subplot(gs[2, :])
-        ax0t = ax0.twiny()
-        ax1t = ax1.twiny()
-        ax2t = ax2.twiny()
+        # ax0t = ax0.twiny()
+        # ax1t = ax1.twiny()
+        # ax2t = ax2.twiny()
     else:
         fig, axes = plt.subplots(1, 3, figsize=(14, 6))
         ax0, ax1, ax2 = axes.flatten()
-        ax0t = ax0.twiny()
-        ax1t = ax1.twiny()
-        ax2t = ax2.twiny()
+        # ax0t = ax0.twiny()
+        # ax1t = ax1.twiny()
+        # ax2t = ax2.twiny()
 
     if iteration is not None:
         plt.suptitle(f"{title} - Iteration {iteration}")
@@ -576,7 +576,7 @@ def plot_balloon_fitting(
             c="midnightblue",
             label="Numerical m",
         )
-    ax0t.axvline(x=t_normalized[first_non_zero_index].item(), color="orange", ls="-.")
+    # ax0t.axvline(x=t_normalized[first_non_zero_index].item(), color="orange", ls="-.")
     ax0.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
     ax0.axhline(y=1 + 1e-4, color="r", ls="--")
     ax0.axhline(y=1 - 1e-4, color="r", ls="--")
@@ -626,9 +626,9 @@ def plot_balloon_fitting(
     ax1.legend(fontsize=10)
     ax1.set_xlabel("PI time")
     ax1.set_title("v and q")
-    # ax1t.set_xlabel("NN time")
-    # ax1t.set_xlim(new_tlims)
-    # ax1t.set_xticks(new_tticks)
+    # # ax1t.set_xlabel("NN time")
+    # # ax1t.set_xlim(new_tlims)
+    # # ax1t.set_xticks(new_tticks)
 
     # Subplot 2: HRF
     ax2.plot(t_plot, hrf_pred_np, lw=1.5, alpha=0.7, label="PINN HRF")
@@ -650,9 +650,9 @@ def plot_balloon_fitting(
     ax2.legend(fontsize=10)
     ax2.set_xlabel("PI time")
     ax2.set_title("HRF")
-    # ax2t.set_xlabel("NN time")
-    # ax2t.set_xlim(new_tlims)
-    # ax2t.set_xticks(new_tticks)
+    # # ax2t.set_xlabel("NN time")
+    # # ax2t.set_xlim(new_tlims)
+    # # ax2t.set_xticks(new_tticks)
 
     # Subplots 3 and 4: BOLD signal fitting (if requested)
     if show_bold_signal:
