@@ -3,28 +3,28 @@ BalloonLib — Physics-Informed Neural Network library for the Balloon haemodyna
 """
 
 # Runtime configuration (must come first — submodules consume it)
-from . import config
-from .config import set_device, set_dtype  # noqa: F401
-
 # Core submodules (import order respects dependency graph)
-from . import balloonmodellib
-from . import utils
-from . import layers
-from . import physics
-from . import data
-from . import metrics
-from . import model
-from . import plotting
-from . import training
-from . import balloon_analysis
-
 # Backward-compat shim (keeps `from balloonlib import balloonpinnlib` working)
-from . import balloonpinnlib
+from . import (
+    balloon_analysis,
+    balloonmodellib,
+    balloonpinnlib,
+    config,
+    data,
+    layers,
+    metrics,
+    model,
+    physics,
+    plotting,
+    training,
+    utils,
+)
+from .config import set_device, set_dtype
 
 # Convenience top-level re-exports
-from .model import Multihead  # noqa: F401
-from .training import loss, train  # noqa: F401
-from .plotting import plotSignals  # noqa: F401
+from .model import Multihead  
+from .plotting import plotSignals 
+from .training import loss, train 
 
 # Package metadata
 __version__ = "0.1.0"
@@ -33,25 +33,28 @@ __license__ = "MIT"
 __email__ = "rodrigo.avaria@uv.cl"
 __url__ = "https://github.com/errehache/BalloonLib"
 
+# submodules
 __all__ = [
-    # submodules
-    "config",
+
+    "balloon_analysis",
     "balloonmodellib",
-    "utils",
-    "layers",
-    "physics",
+    "balloonpinnlib",
+    "config",
     "data",
+    "layers",
     "metrics",
     "model",
+    "physics",
     "plotting",
     "training",
-    "balloonpinnlib",
-    "balloon_analysis",
-    # top-level symbols
-    "set_device",
-    "set_dtype",
+    "utils",
+]
+# top-level symbols
+__all__ += [
     "Multihead",
     "loss",
-    "train",
     "plotSignals",
+    "set_device",
+    "set_dtype",
+    "train",
 ]

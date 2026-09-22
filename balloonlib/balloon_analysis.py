@@ -30,13 +30,13 @@ from __future__ import annotations
 
 import pickle
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
+from collections.abc import Sequence
 
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
-import scipy.stats as stats
-import matplotlib as mpl
-from matplotlib.lines import Line2D
+from scipy import stats as stats
 
 # Print-readability floor for every figure this module draws. IEEE/JBHI
 # requires >=300 dpi for colour/grayscale figures and >=600 dpi for line art
@@ -1296,9 +1296,9 @@ def plot_hrf_descriptors(desc: pd.DataFrame, label: str = "experiment",
     default. Returns ``(fig, axes)`` where ``axes`` is a dict:
     ``{'boxes': [...8 axes...], 'hrf': ax_or_None}``.
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
     import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
 
     features = list(features)
     gt = _ground_truth_descriptors(hrf_true, ground_truth, max_time=max_time)
@@ -1902,11 +1902,10 @@ def plot_ensemble_comparison(states_list: Sequence, labels: Sequence[str],
     ``show_bold_signal=True``. These are screen/slide sized, NOT journal page
     sized -- see the note in :func:`plot_ensemble_states`.
     """
+    import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib.ticker import MultipleLocator
-
-    import matplotlib.colors as mcolors
 
     n = len(states_list)
     if len(labels) != n:

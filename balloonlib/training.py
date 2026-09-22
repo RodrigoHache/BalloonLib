@@ -242,8 +242,6 @@ def loss(
         Per-component weight histories; the last element is used.
     amp : dict of {str: float}
         Amplitude scaling factors per loss component.
-    domain : tuple of float
-        Time domain ``(t_start, t_end)``.
     random : bool
         Whether to sample time points randomly.
     dtype : torch.dtype
@@ -263,7 +261,7 @@ def loss(
         )
     else:
         inputs = Balloon_params["t"].requires_grad_(True)
-
+    
     output, _ = model(inputs)
     hrf_pinn = model.predictor()
 
@@ -303,12 +301,7 @@ def loss(
                 RuntimeWarning,
                 stacklevel=2,
             )
-
-    # if dpredt_num is None:
-    #     raise ValueError("dpredt_num is None")
-    # if torch.isnan(dpredt_num).any():
-    #     raise ValueError("dpredt_num is NaN")
-
+    
     # ODE residual
     Impulse = Balloon_params["I"].reshape(-1, 1)
     lambdar_list = torch.tensor(Balloon_params["lambdar_list"], dtype=dtype).unsqueeze(0)
@@ -343,11 +336,17 @@ def loss(
         print(f"NaN indices in residual: {torch.isnan(residual).nonzero()}")
         raise ValueError("residual is NaN! Terminating training.")
 
-    ode_loss = weighted_temporal_ode_loss(
-        residual, meFn, n_segments=causal_n_segments, 
-        epsilon=causal_epsilon, normalize_weights=causal_normalize
-    )
-
+    if causal_normalize is False: 
+        ode_loss = weighted_temporal_ode_loss(
+            residual, meFn, n_segments=causal_n_segments, 
+            epsilon=causal_epsilon, normalize_weights=causal_normalize
+        )
+    else:
+        ode_loss , weights, segment_losses = weighted_temporal_ode_loss(
+            residual, meFn, n_segments=causal_n_segments, 
+            epsilon=causal_epsilon, normalize_weights=causal_normalize
+        ) 
+        print(weights)
     if "Bold_Signal" in data_params:
         Bold_data = data_params["Bold_Signal"].squeeze()
         bold_pinn, Bold_pinn_time = tofit(
@@ -412,13 +411,15 @@ def train(
     num_iter,
     Balloon_params=None,
     data_params=None,
-    domain=(0, 30),
     random=False,
     every=3,
     loss_weights={"ode": [1.0], "ic": [1.0], "bold": [1.0], "other": [1.]},
     scheduler=None,
     dtype=None,
     device=None,
+    causal_n_segments: int = 30,        
+    causal_epsilon: float = 0.1,        
+    causal_normalize: bool = False, 
 ):
     """Train the Multihead Balloon-PINN model.
 
@@ -436,8 +437,6 @@ def train(
         Balloon physiological parameters.
     data_params : dict or None
         Experimental data parameters.
-    domain : tuple of float
-        Physical time domain ``(t_start, t_end)``.
     random : bool
         If ``True``, add stochastic jitter to time points each iteration.
     every : int
@@ -476,15 +475,16 @@ def train(
     loss_trace = {key: [] for key in loss_weights.keys()}
     total_trace = {"total": []}
     # data = {}
-
+    
     if ("Bold_ode" in data_params) & ("Bold_Signal" in data_params):
         raise TypeError("Bold and Bold_segments cannot both be included during training")
 
     max_elements = Balloon_params["I"].size()[0]
     first_non_zero_index = torch.argmax(Balloon_params["I"]) - 1
-
+    domain = (0, max_elements*0.01)
     pinn_time = (torch.arange(0, max_elements) / max_elements).requires_grad_(False).to(dtype)
-    pinn_time = ((pinn_time - pinn_time.mean()) / pinn_time.std()).view(-1, 1)
+    pinn_t_mean, pinn_t_std = pinn_time.mean(), pinn_time.std()
+    pinn_time = ((pinn_time - pinn_t_mean) / pinn_t_std).view(-1, 1)
 
     Balloon_params.update(
         {
@@ -566,10 +566,10 @@ def train(
                 data_params=data_params,
                 loss_weights=loss_weights,
                 amp=amp,
-                domain=domain,
                 random=random,
                 dtype=dtype,
                 meFn=data_params["errorFn"],
+
             )
 
         # Dynamic amplitude adjustment (activated after warm-up)
@@ -577,8 +577,8 @@ def train(
             t = -(i+2) if i < 10 else -11 
             tmp = np.mean(loss_trace["bold"][t:-1]) / (
                     np.mean(
-                        loss_trace["ode"][t:-1]
-                        + loss_trace["ic"][t:-1]
+                        np.asarray(loss_trace["ode"][t:-1])
+                        + np.asarray(loss_trace["ic"][t:-1])
                         )
                     )
             
@@ -628,7 +628,7 @@ def train(
             plot_balloon_fitting(
                 model=model,
                 t_normalized=pinn_time.requires_grad_(False),
-                domain=domain,
+                domain= domain,
                 stimulus=stimulus,
                 title="Training Progress",
                 data_params=data_params if "Bold_Signal" in data_params else None,
