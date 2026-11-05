@@ -122,7 +122,7 @@ def NeurovascularCoupling(
 
     - elif version == 'convolution'
 
-            Solves the neurovascular coupling equations described for the normalized baseline cerebral blood flow (CBF) 'f_in'.
+            Solves the neurovascular coupling equations described for the normalised baseline cerebral blood flow (CBF) 'f_in'.
         We then assume that both CBF and CMRO2 are linear convolutions of an impulse response function h(t) with the appropriate
         measurement of neuronal activity N(t). According to Buxton 2004. The 'h(t)' shape is then scaled to provide the desired
         amplitude and duration of the impulse response. For this shape and a desired FWHM of tau_f, the time constant in Eq. (12)
@@ -165,7 +165,7 @@ def NeurovascularCoupling(
                 # "the delay after the start of the stimulus before the CBF response begins"
                 delta_tf = params["delta_tf"]
             if "scale" in params:
-                # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural
+                # "represents the normalised flow increase on the plateau of the CBF response to a sustained neural
                 # activity with unit amplitude"
                 scale = params["scale"]
             if "f1" in params:
@@ -175,7 +175,7 @@ def NeurovascularCoupling(
             delta_tf = (
                 1  # "the delay after the start of the stimulus before the CBF response begins"
             )
-            # "represents the normalized flow increase on the plateau of the CBF response to a sustained neural activity
+            # "represents the normalised flow increase on the plateau of the CBF response to a sustained neural activity
             # with unit amplitude"
             scale = True
 
@@ -302,10 +302,10 @@ def Efun(f_in: np.ndarray, E0: float = 0.32) -> float:
 # @njit
 def m_t_E(f_in: np.ndarray, E0: float = 0.32):
     """
-    Compute normalized CMRO2 (cerebral metabolic rate of oxygen).
+    Compute normalised CMRO2 (cerebral metabolic rate of oxygen).
 
     At steady state, CBF and CMRO2 are related by arterial oxygen concentration
-    and the net oxygen extraction fraction E. This corresponds to the normalized
+    and the net oxygen extraction fraction E. This corresponds to the normalised
     form from Buxton 2004 eq. (2), with E from Friston 2000.
 
     Parameters
@@ -318,7 +318,7 @@ def m_t_E(f_in: np.ndarray, E0: float = 0.32):
     Returns
     -------
     mE : np.ndarray
-        Normalized CMRO2 relative to baseline, as a function of oxygen
+        normalised CMRO2 relative to baseline, as a function of oxygen
         extraction fraction E.
 
     """
@@ -503,7 +503,7 @@ def q_func(vol: np.ndarray, mt: np.ndarray, f_out: np.ndarray, params, dt: float
     **Inputs:**
 
         - ``vol``: np.ndarray, time series of volume according to equation 10 of Buxton 2004.
-        - ``mt``: np.ndarray, time series of normalized cerebral oxygen metabolic rate (CMRO2) to its resting value.
+        - ``mt``: np.ndarray, time series of normalised cerebral oxygen metabolic rate (CMRO2) to its resting value.
         - ``f_out``: np.ndarray, time series of the outflow according to equation 11 of Buxton 2004.
         - ``params``: list, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
         tau_m in [0, 30]].
@@ -564,7 +564,7 @@ def Balloon_odeint(
     **Inputs:**
 
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
-        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
+        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalised to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
         tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
@@ -643,7 +643,7 @@ def Balloon_ivp(
     **Inputs:**
 
         - ``f_in``: np.ndarray, corresponds to equation 13, i.e., the inflow.
-        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalized to its resting value.
+        - ``mt``: np.ndarray, time series of cerebral oxygen metabolic rate (CMRO2) normalised to its resting value.
         - ``params``: dict, includes the constants from equations 10 and 11, which are [tau_MTT = 3.0, alpha = 0.4,
          tau_m in [0, 30]].
         - ``dt``: float, dt refers to the integration step.
@@ -823,9 +823,9 @@ def BOLD_Davis(f: np.ndarray, m: np.ndarray, author: str = "Davis198"):
     Parameters
     ----------
     f : np.ndarray
-        Normalized cerebral blood flow.
+        normalised cerebral blood flow.
     m : np.ndarray
-        Normalized CMRO2 (cerebral metabolic rate of oxygen).
+        normalised CMRO2 (cerebral metabolic rate of oxygen).
     author : str, optional
         Model parameters to use. Either "Davis1998" or "Maith2022",
         by default "Davis198".

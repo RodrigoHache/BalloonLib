@@ -383,8 +383,8 @@ def bold_efficiency(experiment, data_params, bpl, *, reducer: str = "mean",
         Anything :func:`_as_states` accepts; must expose an ``hrf`` ensemble
         of shape ``(n_runs, T)``.
     data_params : dict
-        Requires ``Bold_Signal`` (measured trace), ``Overallstim`` (stimulus
-        train, torch tensor), ``Overall_stim_time`` (torch tensor) and
+        Requires ``Bold_Signal`` (measured trace), ``stimuli`` (stimulus
+        train, torch tensor), ``stimuli_time`` (torch tensor) and
         ``Bold_data_time`` (torch tensor — the measured-sample time axis,
         needed to align the reconstruction to the data). Same keys as the
         BOLD panel; here ``Bold_data_time`` is required (no time axis => no
@@ -432,13 +432,13 @@ def bold_efficiency(experiment, data_params, bpl, *, reducer: str = "mean",
         raise KeyError("experiment has no 'hrf' ensemble to reconstruct BOLD from")
     hrf_ens = np.asarray(states["hrf"])          # (n_runs, T)
 
-    required = ["Bold_Signal", "Overallstim", "Overall_stim_time", "Bold_data_time"]
+    required = ["Bold_Signal", "stimuli", "stimuli_time", "Bold_data_time"]
     missing = [k for k in required if data_params.get(k) is None]
     if missing:
         raise ValueError(f"bold_efficiency needs data_params keys: {missing}")
 
-    stim   = data_params["Overallstim"]
-    stim_t = data_params["Overall_stim_time"]
+    stim   = data_params["stimuli"]
+    stim_t = data_params["stimuli_time"]
     bdt    = data_params["Bold_data_time"]
     bsig   = data_params["Bold_Signal"]
     bvals  = bsig.values if hasattr(bsig, "values") else np.asarray(bsig)
@@ -1608,7 +1608,7 @@ def plot_descriptor_comparison(desc_a: pd.DataFrame, desc_b: pd.DataFrame,
 #   * the per-iter BOLD reconstruction (notebook ``process_iter``/``BOLD_iter``)
 #     no longer closes over module globals — the stimulus is passed in.
 #   * the ``'Overall_sim_time'`` typo (silently ignored in the notebook) is
-#     corrected to ``'Overall_stim_time'``.
+#     corrected to ``'stimuli_time'``.
 
 def _as_states(obj) -> dict[str, np.ndarray]:
     """Normalise any accepted container to ``{state: (n_runs, T)}``.
@@ -1688,12 +1688,12 @@ def _overall_bold_panel(ax, df_hrf: pd.DataFrame, data_params: dict, bpl,
     import seaborn as sns
     import torch
 
-    Overall_stimuli = data_params["Overallstim"]
-    Overall_stim_time = data_params["Overall_stim_time"]
+    Overall_stimuli = data_params["stimuli"]
+    stimuli_time = data_params["stimuli_time"]
     Bold_Signal = data_params["Bold_Signal"]
     Bold_data_time = data_params.get("Bold_data_time")
 
-    overall = _bold_per_iter(df_hrf, Overall_stimuli, Overall_stim_time, bpl)
+    overall = _bold_per_iter(df_hrf, Overall_stimuli, stimuli_time, bpl)
     offset = 0.0
     if Bold_data_time is not None:
         hrf_mean = df_hrf.pivot(values="au", index="iter",
@@ -1701,7 +1701,7 @@ def _overall_bold_panel(ax, df_hrf: pd.DataFrame, data_params: dict, bpl,
         hrf_mean = torch.tensor(hrf_mean.values, dtype=torch.float32,
                                     device="cpu")
         ov_mean, ov_time = bpl.tofit(_to_cpu(Overall_stimuli), hrf_mean,
-                                     Overall_stim_time[-1].item() + 0.01)
+                                     stimuli_time[-1].item() + 0.01)
         idx, _ = bpl.timeBall(_to_cpu(Bold_data_time), ov_time)
         idx = idx.detach().cpu()
         bvals = Bold_Signal.values if hasattr(Bold_Signal, "values") else np.asarray(Bold_Signal)
@@ -1714,7 +1714,7 @@ def _overall_bold_panel(ax, df_hrf: pd.DataFrame, data_params: dict, bpl,
     sns.lineplot(data=overall.assign(au=lambda d: offset + d["au"]),
                  x="time", y="au", err_style="band", errorbar="sd",
                  alpha=0.8, ax=ax, label=est_label, color=color)
-    ax.plot(bpl.tensor2np(Overall_stim_time), bpl.tensor2np(Overall_stimuli),
+    ax.plot(bpl.tensor2np(stimuli_time), bpl.tensor2np(Overall_stimuli),
             color="green", label="Stimulus")
     ax.legend(fontsize=12, loc="lower center", ncol=3)
     ax.set_xlabel("time[s]"); ax.set_ylabel("au")
@@ -1739,7 +1739,7 @@ def plot_ensemble_states(states, *, dt: float = 0.01,
     ``show_bold_signal=True`` adds the two BOLD panels; it requires ``torch`` +
     ``balloonpinnlib`` and a fully-populated ``data_params`` (keys as in the
     notebook: ``TR``, ``Sti_Onsets``, ``stim_length [seg]``, ``Bold_Signal``,
-    ``Bold_data_time``, ``Overallstim``, ``Overall_stim_time``, ``stimulus``,
+    ``Bold_data_time``, ``stimuli``, ``stimuli_time``, ``stimulus``,
     ``stimulus_time``). Pure state/HRF panels need only numpy + seaborn.
     Tensors in ``data_params`` may live on any device (CPU or CUDA), or a mix.
 
@@ -1797,15 +1797,15 @@ def plot_ensemble_states(states, *, dt: float = 0.01,
             raise ValueError("data_params must be provided when show_bold_signal=True")
         bpl = _get_bpl()
         required = ["Bold_Signal", "Sti_Onsets", "TR", "stim_length [seg]",
-                    "stimulus", "stimulus_time", "Overallstim", "Overall_stim_time"]
+                    "stimulus", "stimulus_time", "stimuli", "stimuli_time"]
         missing = [k for k in required if k not in data_params]
         if missing:
             raise ValueError(f"data_params missing keys: {missing}")
 
         stimulus = _to_cpu(data_params["stimulus"])
         stimulus_time = _to_cpu(data_params["stimulus_time"])
-        Overall_stimuli = _to_cpu(data_params["Overallstim"])
-        Overall_stim_time = _to_cpu(data_params["Overall_stim_time"])
+        Overall_stimuli = _to_cpu(data_params["stimuli"])
+        stimuli_time = _to_cpu(data_params["stimuli_time"])
         Bold_Signal = data_params["Bold_Signal"]
         Bold_data_time = _to_cpu(data_params.get("Bold_data_time"))
         TR = data_params["TR"]
@@ -1814,7 +1814,7 @@ def plot_ensemble_states(states, *, dt: float = 0.01,
         # single-trial ensemble BOLD
         single = _bold_per_iter(dfs["hrf"], stimulus, stimulus_time, bpl)
         # overall ensemble BOLD (offset-aligned to data)
-        overall = _bold_per_iter(dfs["hrf"], Overall_stimuli, Overall_stim_time, bpl)
+        overall = _bold_per_iter(dfs["hrf"], Overall_stimuli, stimuli_time, bpl)
         offset = 0.0
         if Bold_data_time is not None:
             import torch
@@ -1823,7 +1823,7 @@ def plot_ensemble_states(states, *, dt: float = 0.01,
             hrf_mean = torch.tensor(hrf_mean.values, dtype=torch.float32,
                                     device="cpu")
             ov_mean, ov_time = bpl.tofit(Overall_stimuli, hrf_mean,
-                                         Overall_stim_time[-1].item() + 0.01)
+                                         stimuli_time[-1].item() + 0.01)
             idx, _ = bpl.timeBall(Bold_data_time, ov_time)
             idx = idx.detach().cpu()
             bvals = Bold_Signal.values if hasattr(Bold_Signal, "values") else np.asarray(Bold_Signal)
@@ -1861,7 +1861,7 @@ def plot_ensemble_states(states, *, dt: float = 0.01,
         sns.lineplot(data= overall.assign(au=lambda d: offset + d["au"]),
                      x="time", y="au", err_style="band", errorbar="sd",
                      alpha=0.7, ax=ax4, label="Estimated BOLD")
-        ax4.plot(bpl.tensor2np(Overall_stim_time), bpl.tensor2np(Overall_stimuli),
+        ax4.plot(bpl.tensor2np(stimuli_time), bpl.tensor2np(Overall_stimuli),
                  color="green", label="Stimuli")
         ax4.legend(fontsize=12, bbox_to_anchor=(0.75, -0.5), loc="lower center", ncol=3, frameon=False)
         ax4.set_xlabel("time[s]"); ax4.set_ylabel("au")
@@ -1989,7 +1989,7 @@ def plot_ensemble_comparison(states_list: Sequence, labels: Sequence[str],
 
     if show_bold_signal:
         bpl = _get_bpl()
-        required = ["Bold_Signal", "Overallstim", "Overall_stim_time"]
+        required = ["Bold_Signal", "stimuli", "stimuli_time"]
         for i, (st, lbl, dp, ax) in enumerate(
                 zip(sts, labels, data_params_list, bold_axes)):
             missing = [k for k in required if k not in dp]

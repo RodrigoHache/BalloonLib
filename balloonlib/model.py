@@ -278,7 +278,8 @@ class Multihead(nn.Module):
         out : torch.Tensor
             Final hidden representation from the shared backbone, shape ``(N, 512)``.
         """
-        x_encoded = self.encode_input(x)
+        self._x = x
+        x_encoded = self.encode_input(self._x)
         
         if self.mode == "detach":
             with torch.no_grad():
@@ -310,14 +311,17 @@ class Multihead(nn.Module):
         #   nns = [0,1] -> v_arg = [outi[0] ,f]
         # else: v_arg = [outi[1] ,f]
         v_arg = torch.cat((outi[1 - self.nns[1]], self.f), axis=1)
-        q_arg = torch.cat((outi[1], self.m, self.core_fn[0](self.Core[0](v_arg))), axis=1)
-        core_arg = [v_arg, q_arg]
-
-        self.v, self.q = [self.core_fn[i](self.Core[i](core_arg[i])) for i in range(2)]
+        self.v = self.core_fn[0](self.Core[0](v_arg))
+        q_arg = torch.cat((outi[1], self.m, self.v), axis=1)
+        self.q = self.core_fn[1](self.Core[1](q_arg))
 
         output = torch.cat((self.f, self.m, self.v, self.q), axis=1)
         return output, out
-
+    
+    def time_derivative(self, signal, t=None):
+        g = dfdt(signal=signal, arg=self._x if t is None else t)
+        return g[:, :1]          # column 0 = d/dt; with impulse=True column 1 (d/dI) is discarded
+    
     # @torch.compile
     def fout(
         self,
@@ -325,7 +329,10 @@ class Multihead(nn.Module):
         alpha=None,
         tau_m: float = 20,
         dvdt: torch.Tensor = None,
-    ) -> torch.Tensor:
+        *,
+        viscoelastic : bool = True,
+        t_scale = None,
+        ) -> torch.Tensor:
         """Compute the balloon outflow function.
 
         Parameters
@@ -337,7 +344,7 @@ class Multihead(nn.Module):
         tau_m : float
             Viscoelastic time constant (s).
         dvdt : torch.Tensor, optional
-            Time derivative of *v*.  Defaults to zero (purely elastic regime).
+            Time derivative of *v*.
 
         Returns
         -------
@@ -349,10 +356,15 @@ class Multihead(nn.Module):
         else:
             v = v.squeeze() if v.ndim >= 2 else v
 
-        if dvdt is None:
+        if not viscoelastic:
             dvdt = torch.zeros_like(v)
+        elif dvdt is None:
+            if t_scale is None:
+                raise ValueError("fout(viscoelastic=True) needs dv/dt in physical time: pass dvdt=..., "
+                             "or t_scale=Balloon_params['t_scale'] to differentiate the network here.")
+            dvdt = t_scale * self.time_derivative(v).reshape(-1)
         else:
-            dvdt = dvdt.squeeze() if dvdt.ndim >= 2 else dvdt
+            dvdt = dvdt.reshape(-1)
 
         if alpha is None:
             alpha = self.alpha
@@ -456,9 +468,9 @@ class Multihead(nn.Module):
             q = self.q.squeeze() if self.q.ndim >= 2 else self.q
 
         if dv is None:
-            dv = dfdt(signal=v, arg=t)
+            dv = self.time_derivative(signal=v,t=t)
         if dq is None:
-            dq = dfdt(signal=q, arg=t)
+            dq = self.time_derivative(signal=q,t=t)
 
         shape = dv.size()
         dv = dv.squeeze() if dv.ndim >= 2 else dv
@@ -548,15 +560,19 @@ class Multihead(nn.Module):
             f = self.f.squeeze() if self.f.ndim >= 2 else self.f
         if m is None:
             m = self.m.squeeze() if self.m.ndim >= 2 else self.m
+        
         alpha = p["alpha"] if p["alpha"] is not None else 0.4
-
+        
         if df is None:
-            df = dfdt(signal=f, arg=t)
+            df = self.time_derivative(signal=f,t=t)            
         if dm is None:
-            dm = dfdt(signal=m, arg=t)
-
-        # Analytical derivative: dh/dt = A * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
-        dhdt = p["A"] * (
+            dm = self.time_derivative(signal=m,t=t)
+        
+        df = df.squeeze() if df.ndim >= 2 else df
+        dm = dm.squeeze() if dm.ndim >= 2 else dm
+        
+        # Analytical derivative: dh/dt = -A * [(α-β)*f^(α-β-1)*m^β*df + β*f^(α-β)*m^(β-1)*dm]
+        dhdt = -p["A"] * (
             (alpha - p["beta"]) * df * f ** (alpha - p["beta"] - 1) * m ** p["beta"]
             + f ** (alpha - p["beta"]) * p["beta"] * dm * m ** (p["beta"] - 1)
         )

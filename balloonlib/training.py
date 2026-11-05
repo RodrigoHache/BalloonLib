@@ -16,197 +16,9 @@ from typing import Dict, List
 from balloonlib import config
 from balloonlib.physics import dfdt, weighted_temporal_ode_loss
 from balloonlib.data import segmentData, experimental_stims
-from balloonlib.utils import np2tensor, timeBall, tofit, SigmoidClamp
+from balloonlib.utils import np2tensor, timeBall, tofit, SigmoidClamp, drive_moments
 from balloonlib.plotting import plot_balloon_fitting
-
-
-# ---------------------------------------------------------------------------
-# Adaptive loss reweighting
-# ---------------------------------------------------------------------------
-
-
-@torch.no_grad()
-def loss_reweight_paranoid(
-    loss_dict: Dict[str, torch.Tensor],
-    loss_trace: Dict[str, List[float]],
-    weights_history: Dict[str, List[float]],
-    keys_to_skip: List[str] = [],
-    temperature: float = 0.1,
-    alpha: float = 0.999,
-    rho: float = 0.95,
-    device=None,
-    eps: float = 1e-12,
-    validate: bool = True,
-) -> Dict[str, List[float]]:
-    """Compute adaptive loss weights with Bernoulli history retention.
-
-    Implements the adaptive balancing algorithm from Bischof & Kraus
-    (2021, eq. 11).  Combines softmax-based weights scaled by both
-    *initial* and *recent* loss ratios, blended via exponential moving
-    average and stochastic history selection.
-
-    Parameters
-    ----------
-    loss_dict : dict of {str: torch.Tensor}
-        Current loss values per component.
-    loss_trace : dict of {str: list of float}
-        Full loss history per component.
-    weights_history : dict of {str: list of float}
-        Weight history per component; new weights are appended in-place.
-    keys_to_skip : list of str
-        Components excluded from reweighting (always get weight 1.0).
-    temperature : float
-        Softmax temperature *T*.  ``T → inf`` yields uniform weights;
-        ``T → 0`` concentrates weight on the slowest-progressing term.
-    alpha : float
-        EMA blending coefficient (higher = more past memory).
-    rho : float
-        Bernoulli probability for choosing the previous weight over the
-        softmax-initial weight.
-    device : str, torch.device, or None
-        Computation device.  ``None`` uses :data:`balloonlib.config.device`.
-    eps : float
-        Clamping floor for numerical stability.
-    validate : bool
-        If ``True``, run paranoid post-hoc assertions.
-
-    Returns
-    -------
-    dict of {str: list of float}
-        The *same* ``weights_history`` object with new values appended.
-    """
-    if device is None:
-        device = config.device
-
-    if validate:
-        original_keys = set(weights_history.keys()) - set(keys_to_skip)
-        original_lengths = {k: len(weights_history[k]) for k in original_keys}
-
-    keys = sorted(
-        [
-            k
-            for k in weights_history.keys()
-            if k in loss_dict and k in loss_trace and k not in keys_to_skip
-        ]
-    )
-
-    if not keys:
-        return weights_history
-
-    current = torch.stack([loss_dict[k] for k in keys]).requires_grad_(False)
-    initial = torch.tensor([loss_trace[k][0] for k in keys], device=device)
-
-    prev_loss = torch.tensor(
-        [loss_trace[k][-2] if len(loss_trace[k]) > 1 else loss_trace[k][0] for k in keys],
-        device=device,
-    )
-
-    prev_weights = torch.tensor([weights_history[k][-1] for k in keys], device=device)
-
-    logits_hist = current / (temperature * torch.clamp(initial, min=eps))
-    logits_recent = current / (temperature * torch.clamp(prev_loss, min=eps))
-
-    weights_hist = torch.softmax(logits_hist, dim=0)
-    weights_recent = torch.softmax(logits_recent, dim=0)
-
-    rho_sample = torch.bernoulli(torch.tensor(rho, device=device))
-    hist_weights = rho_sample * prev_weights + (1 - rho_sample) * weights_hist
-    new_weights = alpha * hist_weights + (1 - alpha) * weights_recent
-
-    for k, w in zip(keys, new_weights.tolist()):
-        weights_history[k].append(w)
-
-    for k in keys_to_skip:
-        weights_history[k].append(1.0)
-
-    if validate:
-        assert set(weights_history.keys()) == original_keys.union(keys_to_skip), "Keys changed!"
-        for k in original_keys:
-            if k != "total" and k in keys:
-                assert len(weights_history[k]) == original_lengths[k] + 1, (
-                    f"History length mismatch for {k}"
-                )
-            elif k != "total":
-                assert len(weights_history[k]) == original_lengths[k], (
-                    f"Non-updated key {k} changed length!"
-                )
-
-    return weights_history
-
-
-# ---------------------------------------------------------------------------
-# Per-loss gradient analysis
-# ---------------------------------------------------------------------------
-
-
-def compute_per_loss_gradients(
-    model,
-    loss_dict,
-    every_n: int = 1,
-    current_iter: int = 0,
-    return_norms: bool = True,
-):
-    """Compute per-component gradient norms w.r.t. model parameters.
-
-    For each entry in ``loss_dict``, back-propagates through the graph
-    (with ``retain_graph=True``) to obtain the flattened gradient vector
-    and its L2 norm.
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-        The PINN model whose parameters are differentiated.
-    loss_dict : dict of {str: torch.Tensor}
-        Named scalar loss tensors.
-    every_n : int
-        Only compute when ``current_iter % every_n == 0`` to amortise
-        the cost of ``retain_graph``.
-    current_iter : int
-        Current training iteration index.
-    return_norms : bool
-        If ``True``, also return normalised inverse-norm weights.
-
-    Returns
-    -------
-    grads : dict of {str: torch.Tensor} or None
-        Flattened gradient vectors per loss component.
-    norms : dict of {str: float} or None
-        Inverse-normalised L2 norms (``total / norm_i``).
-        ``None`` on skipped iterations.
-    """
-    if current_iter % every_n != 0:
-        return None, None
-
-    params = list(model.parameters())
-    grads = {}
-    norms = {}
-
-    for name, w_loss in loss_dict.items():
-        gradients = torch.autograd.grad(
-            outputs=w_loss,
-            inputs=params,
-            retain_graph=True,
-            create_graph=False,
-            allow_unused=True,
-        )
-
-        flat = torch.cat(
-            [
-                g.detach().reshape(-1)
-                if g is not None
-                else torch.zeros(p.numel(), device=p.device, dtype=p.dtype)
-                for g, p in zip(gradients, params)
-            ]
-        )
-        grads[name] = flat
-
-    if return_norms:
-        norms = {key: value.norm(2).item() for key, value in grads.items()}
-        total = sum(norms.values())
-        norms = {key: (total / value) for key, value in norms.items()}
-
-    return grads, norms
-
+from balloonlib.MOO_Loss import loss_reweight_paranoid, compute_per_loss_gradients# noqa: F401  (moved; re-exported)
 
 # ---------------------------------------------------------------------------
 # Composite PINN loss
@@ -215,7 +27,6 @@ def loss(
     model,
     Balloon_params: dict,
     data_params: dict,
-    # data: dict,
     loss_weights: dict,
     amp: dict,
     domain=(0, 30),
@@ -224,7 +35,7 @@ def loss(
     meFn=nn.MSELoss(),
     causal_n_segments: int = 30,        
     causal_epsilon: float = 0.1,        
-    causal_normalize: bool = False,     
+    causal_normalise: bool = False,     
 ):
     """Compute the composite PINN loss (ODE + IC + BC + data).
 
@@ -255,12 +66,13 @@ def loss(
         Loss dictionary with keys ``'total'``, ``'ode'``, ``'ic'``, ``'bold'``, ``'other'``.
     """
     # Evaluate model at sample points
+    t = Balloon_params["t"].requires_grad_(True)
     if model.impulse:
-        inputs = torch.cat([Balloon_params["t"], Balloon_params["I"].view(-1, 1)], dim=1).view(
+        inputs = torch.cat([t, Balloon_params["I"]], dim=1).view(
             -1, 2
         )
     else:
-        inputs = Balloon_params["t"].requires_grad_(True)
+        inputs = t
     
     output, _ = model(inputs)
     hrf_pinn = model.predictor()
@@ -303,14 +115,14 @@ def loss(
             )
     
     # ODE residual
-    Impulse = Balloon_params["I"].reshape(-1, 1)
-    lambdar_list = torch.tensor(Balloon_params["lambdar_list"], dtype=dtype).unsqueeze(0)
-    kappa_list = torch.tensor(Balloon_params["kappa_list"], dtype=dtype).unsqueeze(0)
-    gamma_list = torch.tensor(Balloon_params["gamma_list"], dtype=dtype).unsqueeze(0)
-    tau_m = torch.tensor(Balloon_params["tau_m_list"], dtype=dtype)
-    tau_MTT = torch.tensor(Balloon_params["tau_MTT_list"], dtype=dtype)
-
-    f_out = model.fout(model.v, tau_m=tau_m, dvdt=dvdt)
+    Impulse = Balloon_params["I"]
+    lambdar_list = Balloon_params["lambdar_list"]
+    kappa_list = Balloon_params["kappa_list"]
+    gamma_list = Balloon_params["gamma_list"]
+    tau_m = Balloon_params["tau_m_list"]
+    tau_MTT = Balloon_params["tau_MTT_list"]
+    
+    f_out = model.fout(model.v, tau_m=tau_m, dvdt=dvdt, t_scale = Balloon_params["t_scale"])
 
     residual = torch.cat(
         [
@@ -336,51 +148,52 @@ def loss(
         print(f"NaN indices in residual: {torch.isnan(residual).nonzero()}")
         raise ValueError("residual is NaN! Terminating training.")
 
-    if causal_normalize is False: 
-        ode_loss = weighted_temporal_ode_loss(
-            residual, meFn, n_segments=causal_n_segments, 
-            epsilon=causal_epsilon, normalize_weights=causal_normalize
-        )
-    else:
-        ode_loss , weights, segment_losses = weighted_temporal_ode_loss(
-            residual, meFn, n_segments=causal_n_segments, 
-            epsilon=causal_epsilon, normalize_weights=causal_normalize
-        ) 
-        print(weights)
+    ode_loss = weighted_temporal_ode_loss(
+        residual, meFn, n_segments=causal_n_segments,
+        epsilon=causal_epsilon, normalise_weights=causal_normalise
+        )        
     if "Bold_Signal" in data_params:
-        Bold_data = data_params["Bold_Signal"].squeeze()
+        Bold_data = data_params["Bold_Signal"]
         bold_pinn, Bold_pinn_time = tofit(
-            data_params["Overallstim"],
+            data_params["stimuli"],
             hrf_pinn,
-            data_params["Overall_stim_time"][-1] + 0.01,
+            data_params["stimuli_t_max"],
         )
-        samples_index, _ = timeBall(data_params["Bold_data_time"], Bold_pinn_time)
-        bold_pinn_sampled = bold_pinn[samples_index]
-        offset = -torch.mean(bold_pinn_sampled - Bold_data)
-        pre_stim = sum(samples_index<=torch.argmax(data_params["Overallstim"]))
+        bold_pinn = 100*(0.01/data_params['drive_area'])*bold_pinn
         
-        bold_loss = meFn(offset + bold_pinn_sampled[pre_stim:], Bold_data[pre_stim:])
+        samples_index, valid = timeBall(data_params["Bold_data_time"], Bold_pinn_time)
+        assert bool(valid.all()), f"{int((~valid).sum())} acquisition times fall outside the stimulus grid"
+        
+        tmatch = Bold_pinn_time[samples_index]
+        assert float((tmatch - data_params["Bold_data_time"].squeeze()).abs().max()) <= 0.005 + 1e-9
+
+        noise = data_params.get("noise_model")
+        if noise is None:                     # white-noise term (unchanged behaviour)
+            bold_res = torch.add(bold_pinn[samples_index], - Bold_data)
+            assert bold_res.shape == Bold_data.shape, f"broadcast: {tuple(bold_res.shape)}"
+            offset = -torch.mean(bold_res).detach()
+        
+            bold_loss = meFn(torch.add(bold_res, offset), torch.zeros_like(bold_res))
+        else:                                 # AR(1)-whitened term (balloonlib.ar1_whitening)
+            bold_loss = noise.loss(bold_pinn[samples_index], Bold_data,
+                                   data_params["Bold_data_time"], meFn)
+                
     else:
-        bold_loss = torch.zeros_like(ode_loss, requires_grad=True)
+        bold_loss = ode_loss.new_zeros(())
 
     # Physics violation penalties
-    other_loss = meFn(tau_MTT*(model.v*dqdt-model.q*dvdt), model.m*model.v-model.q*model.f)
-
-    max_elements = Balloon_params["I"].size()[0]
+    other_loss = meFn(tau_MTT*(model.v*dqdt-model.q*dvdt), model.m*model.v-model.q*model.f) + meFn(nn.functional.relu(1.0-model.v), torch.zeros_like(model.v))
+                
 
     # Initial condition and boundary losses
-    if (Balloon_params["I"][Balloon_params["time_border_mask"]]).sum() == 0:
-        tmp_index = torch.arange(max_elements)[Balloon_params["time_border_mask"]]
-        w = len(tmp_index)**(0.5)
-        tmp_cauchy = torch.cat([w*(output-1), hrf_pinn, d2findt2, d2mtdt2, dfindt, dmdt, dvdt, dqdt], dim=1)#, dpredt_num], dim=1)
-        cauchy_ic = torch.index_select(tmp_cauchy, dim=0, index=tmp_index)
-        # cauchy_target =  torch.cat([torch.ones_like(cauchy_ic[:, :4]),  
-        #                             torch.zeros_like(cauchy_ic[:, 4:])], dim=1)
-        cauchy_target = torch.zeros_like(cauchy_ic)
-        ic_loss = meFn(cauchy_ic, cauchy_target)
+    if Balloon_params["time_border_I"] == 0:
+        # tmp_cauchy = torch.cat([Balloon_params["W"]*(output-1), hrf_pinn, d2findt2, d2mtdt2, dfindt, dmdt, dvdt, dqdt], dim=1)#, dpredt_num], dim=1)
+        tmp_cauchy = torch.cat([output-1, hrf_pinn, d2findt2, d2mtdt2, dfindt, dmdt, dvdt, dqdt], dim=1)#, dpredt_num], dim=1)
+        cauchy_ic = torch.index_select(tmp_cauchy, dim=0, index=Balloon_params["tmp_index"])
+        ic_loss = meFn(cauchy_ic, torch.zeros_like(cauchy_ic))
         
     else:
-        ic_loss = torch.zeros_like(ode_loss, requires_grad=True)
+        ic_loss = ode_loss.new_zeros(())
 
     loss_dict = {
         "ode": ode_loss,
@@ -419,7 +232,8 @@ def train(
     device=None,
     causal_n_segments: int = 30,        
     causal_epsilon: float = 0.1,        
-    causal_normalize: bool = False, 
+    causal_normalise: bool = False, 
+    balancer=None,
 ):
     """Train the Multihead Balloon-PINN model.
 
@@ -450,6 +264,13 @@ def train(
     device : str, torch.device, or None
         Computation device.  ``None`` uses :data:`balloonlib.config.device`.
 
+    balancer : balloonlib.MOO_Loss balancer or None
+        Adaptive multi-objective loss weighting: ``SoftAdapt``, ``ReLoBRaLo``,
+        ``InverseGradNorm`` or ``LRAnnealing``.  When given, every ``amp`` is fixed
+        at 1, the dynamic amp rule is skipped, and the balancer appends new weights
+        to a COPY of ``loss_weights`` (the caller's dict is not modified).  Its
+        history is stored in ``data_params["balancer_state"]``.  ``None``
+        (default) keeps the dynamic amp rule.
     Returns
     -------
     dict of {str: list of float}
@@ -472,6 +293,11 @@ def train(
     soft_amp = SigmoidClamp(from_val = 0, to_val=1)
     amp_0 = 1e1
     amp_i = 1e1
+    if balancer is not None:
+        # The balancer owns the weighting: no amp rescaling, and never mutate
+        # the caller's (or the default argument's) weight lists.
+        amp = {k: 1.0 for k in amp}
+        loss_weights = {k: list(v) for k, v in loss_weights.items()}
     loss_trace = {key: [] for key in loss_weights.keys()}
     total_trace = {"total": []}
     # data = {}
@@ -480,32 +306,55 @@ def train(
         raise TypeError("Bold and Bold_segments cannot both be included during training")
 
     max_elements = Balloon_params["I"].size()[0]
-    first_non_zero_index = torch.argmax(Balloon_params["I"]) - 1
-    domain = (0, max_elements*0.01)
+    onset = int((Balloon_params["I"].flatten() > 0).nonzero()[0])
+    first_non_zero_index = 0 if onset==0 else onset - 1
+    
+    Balloon_params.update({
+        "I":            Balloon_params["I"].reshape(-1, 1),
+        "lambdar_list": torch.as_tensor(Balloon_params["lambdar_list"], dtype=dtype).reshape(1, -1),
+        "kappa_list":   torch.as_tensor(Balloon_params["kappa_list"],   dtype=dtype).reshape(1, -1),
+        "gamma_list":   torch.as_tensor(Balloon_params["gamma_list"],   dtype=dtype).reshape(1, -1),
+        "tau_m_list":   torch.as_tensor(Balloon_params["tau_m_list"],   dtype=dtype),
+        "tau_MTT_list": torch.as_tensor(Balloon_params["tau_MTT_list"], dtype=dtype),
+        })
+
+    A, t_c, _ = drive_moments(Balloon_params["I"])
+    data_params["drive_area"], data_params["drive_centroid"] = A, t_c
+    
+    domain = (0, (max_elements-1)*0.01)
     pinn_time = (torch.arange(0, max_elements) / max_elements).requires_grad_(False).to(dtype)
     pinn_t_mean, pinn_t_std = pinn_time.mean(), pinn_time.std()
     pinn_time = ((pinn_time - pinn_t_mean) / pinn_t_std).view(-1, 1)
-
+    t_min = pinn_time[0]
+    causal_epsilon_list = [1,5e-1,1e-1,5e-2,1e-2,1e-3]
+    range_iter = np.arange(num_iter)
+    causal_epsilon_loop = [int(i//(num_iter//(len(causal_epsilon_list)))) for i in range_iter]
+    gate = soft_amp(0.05 * (range_iter - 100))
     Balloon_params.update(
         {
             "first_non_zero_t": pinn_time[first_non_zero_index],
-            "t_scale": (pinn_time[-1] - pinn_time[0]) / (domain[1] - domain[0]),
+            "t_scale": (pinn_time[-1] - t_min) / (domain[1] - domain[0]),
             "time_border_mask": (
                 (pinn_time.squeeze() <= pinn_time[first_non_zero_index])
                 | (pinn_time.squeeze() >= pinn_time[-50])
             ),
         }
     )
-
-    data_params["Bold_Signal"] = torch.as_tensor(data_params["Bold_Signal"]).to(dtype).view(-1, 1)
-
+    Balloon_params.update(
+        {
+            "time_border_I": (Balloon_params["I"][Balloon_params["time_border_mask"]]).sum(),
+            "tmp_index": torch.arange(max_elements)[Balloon_params["time_border_mask"]],
+            "W":int(Balloon_params["time_border_mask"].sum())**(0.5)
+        }
+    )
     if not random:
-        epsilon = torch.zeros(num_iter)
+        epsilon = pinn_time.new_zeros(num_iter)
     else:
         distr = torch.distributions.beta.Beta(5, 5)
         epsilon = (distr.sample([num_iter]) - distr.mean) / max_elements
 
     if "Bold_Signal" in data_params:
+        data_params["Bold_Signal"] = torch.as_tensor(data_params["Bold_Signal"], dtype=dtype).squeeze()
         time_bf_stim = data_params["TR"]
         Bold_segments, time_corrected = segmentData(
             data_params["Bold_Signal"],
@@ -514,8 +363,8 @@ def train(
             t0s=data_params["t0"],
             TR=data_params["TR"],
         )
-        optimal_combinatory = round(len(Bold_segments) / 2)
-        data_params.update({"index_size": optimal_combinatory})
+        # optimal_combinatory = round(len(Bold_segments) / 2)
+        # data_params.update({"index_size": optimal_combinatory})
 
         time_max = torch.ceil(torch.stack([i.max() for i in time_corrected]).max()).to(
             dtype=torch.int32
@@ -523,41 +372,38 @@ def train(
 
         stimulus, stimulus_time = experimental_stims(
             time_max.detach().item() / data_params["TR"],
-            Sti_Onsets=[time_bf_stim],
+            Sti_Onsets=[time_bf_stim-t_c],
             TR=data_params["TR"],
             block_len=data_params["stim_length [seg]"],
             stmxblck=data_params["stim_x_block"],
         )
 
-        n_elements = data_params["Bold_Signal"].shape[0] * data_params["TR"]
-        Bold_data_time = torch.arange(0, n_elements, data_params["TR"]) + data_params["t0"]
-
-        Overall_stimuli, Overall_stim_time = experimental_stims(
+        stimuli, stimuli_time = experimental_stims(
             data_params["Bold_Signal"].shape[0] + (data_params["t0"] // data_params["TR"]),
-            Sti_Onsets=data_params["Sti_Onsets"],
+            Sti_Onsets=data_params["Sti_Onsets"]-t_c,
             TR=data_params["TR"],
             block_len=data_params["stim_length [seg]"],
             stmxblck=data_params["stim_x_block"],
         )
-
+        onset = int((stimuli.flatten()> 0).nonzero()[0])
         data_params.update(
             {
-                "Bold_data_time": Bold_data_time,
+                "Bold_data_time": data_params["t0"] + torch.arange(data_params["Bold_Signal"].shape[0]) * data_params["TR"],
                 "stimulus": stimulus.view(-1, 1),
                 "stimulus_time": stimulus_time,
-                "Overallstim": Overall_stimuli,
-                "Overall_stim_time": Overall_stim_time,
+                "stimuli": stimuli,
+                "stimuli_time": stimuli_time,
+                "stimuli_Onset": onset,
+                "stimuli_t_max":stimuli_time[-1], 
             }
         )
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
-    range_iter = np.arange(num_iter)
-    gate = soft_amp(0.05 * (range_iter - 100)).cpu()
-    
-    for i in tqdm(range(num_iter)):
+        
+    for i in tqdm(range_iter):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        Balloon_params.update({"t": torch.clamp(pinn_time + epsilon[i], min=pinn_time[0].item())})
+        Balloon_params.update({"t": torch.clamp(pinn_time + epsilon[i], min=t_min)})
         # enabled=use_amp is False, so dtype is ignored and this runs in float32.
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
             loss_dict = lossfn(
@@ -569,26 +415,46 @@ def train(
                 random=random,
                 dtype=dtype,
                 meFn=data_params["errorFn"],
-
+                causal_n_segments=causal_n_segments, 
+                causal_epsilon=causal_epsilon_loop[i],
+                causal_normalise=causal_normalise,
             )
 
-        # Dynamic amplitude adjustment (activated after warm-up)
-        if i > 1: 
-            t = -(i+2) if i < 10 else -11 
-            tmp = np.mean(loss_trace["bold"][t:-1]) / (
-                    np.mean(
-                        np.asarray(loss_trace["ode"][t:-1])
-                        + np.asarray(loss_trace["ic"][t:-1])
+        # Dynamic amplitude adjustment (activated after warm-up); skipped with a balancer
+        if balancer is None:
+            if i > 1:
+                t = -(i+2) if i < 10 else -11
+                tmp = np.mean(loss_trace["bold"][t:-1]) / (
+                        np.mean(
+                            np.asarray(loss_trace["ode"][t:-1])
+                            + np.asarray(loss_trace["ic"][t:-1])
+                            )
                         )
-                    )
             
-            amp_i = ((1-gate[i])*amp_0 + gate[i]*tmp).item()
+                amp_i = ((1-gate[i])*amp_0 + gate[i]*tmp).item()
         
-        for k in loss_weights.keys():
-            if k != "bold" and loss_weights["bold"][0] > 0.0:
-                amp[k] = np.round(amp_i, 1) if np.round(amp_i, 1) > 1 else 1.0
+            for k in loss_weights.keys():
+                if k != "bold" and loss_weights["bold"][0] > 0.0:
+                    amp[k] = np.round(amp_i, 1) if np.round(amp_i, 1) > 1 else 1.0
+
+        # Multi-objective balancing: BEFORE backward, because the gradient-based
+        # balancers differentiate each term (retain_graph=True).  New weights are
+        # appended to loss_weights and act from the next iteration.
+        if balancer is not None:
+            balancer(loss_dict, loss_weights, i, model=model)
 
         scaler.scale(loss_dict["total"]).backward()
+
+        # Re-estimate the residual AR(1) coefficient on schedule (no gradient);
+        # the new rho is used from the next iteration's loss.
+        noise = data_params.get("noise_model") if data_params is not None else None
+        if noise is not None:
+            est = noise.update(i)
+            if est is not None and every != 0:
+                print(f"[AR(1)] iter {i}: lag-1 {est['phi_raw']:.3f} -> rho {est['phi']:.3f}"
+                      f" ({'white' if est['white'] else 'whitened'}), sigma {est['sigma']:.3g},"
+                      f" lag-1 after whitening {est['lag1_whitened']:+.3f}"
+                      + ("  AT BOUND: misfit read as noise?" if est["at_bound"] else ""))
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scale_before_step = scaler.get_scale()
@@ -627,9 +493,8 @@ def train(
             print("Physics amp", amp)
             plot_balloon_fitting(
                 model=model,
-                t_normalized=pinn_time.requires_grad_(False),
+                t_normalised=pinn_time.requires_grad_(False),
                 domain= domain,
-                stimulus=stimulus,
                 title="Training Progress",
                 data_params=data_params if "Bold_Signal" in data_params else None,
                 first_non_zero_index=first_non_zero_index,
@@ -639,17 +504,20 @@ def train(
             )
 
     loss_trace.update(total_trace)
+    if balancer is not None and data_params is not None:
+        data_params["balancer_state"] = balancer.state()                 # picklable summary
+    if data_params is not None and data_params.get("noise_model") is not None:
+        data_params["noise_state"] = data_params["noise_model"].state()   # picklable summary
 
     # Guarantee self.f/m/v/q reflect a full-precision forward pass over the
     # complete, ordered time domain on exit — independent of `every` and of
     # whatever precision the last autocast training step happened to use.
     model.eval()
-    with torch.no_grad():
-        inputs = (
-            torch.cat([pinn_time, Balloon_params["I"].view(-1, 1)], dim=1)
-            if model.impulse else pinn_time
-        )
-        model(inputs)
+    t_exit = pinn_time.detach().clone().requires_grad_(True)
+    inputs = (
+        torch.cat([t_exit, Balloon_params["I"].view(-1, 1)], dim=1)
+        if model.impulse else t_exit
+    )
+    model(inputs)   # gradients ON: cached f/m/v/q stay differentiable w.r.t. model._x
     model.train()
-
     return loss_trace

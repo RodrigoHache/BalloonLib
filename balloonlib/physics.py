@@ -7,6 +7,7 @@ causal ODE loss weighting functions used during PINN training.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import List
 
 
@@ -121,16 +122,12 @@ def compute_temporal_weights(
         Per-segment loss values, shape ``(n_segments,)``.
     epsilon : float
         Decay rate.  Larger values produce more aggressive down-weighting.
-    device : str or None
-        Computation device.  ``None`` infers the device from ``segment_losses``.
 
     Returns
     -------
     torch.Tensor
         Weights, shape ``(n_segments,)``.
     """
-    dev = segment_losses.device if device is None else device
-
     # Weights are treated as constants of the current step: the cumulative sum is
     # detached so that autograd does not differentiate w_i through the preceding
     # segment losses.  Differentiating through w_i would reward inflating early
@@ -139,11 +136,55 @@ def compute_temporal_weights(
     cumsum_losses = torch.cumsum(segment_losses.detach(), dim=0)
 
     # Shift right by one: weights[i] = exp(-ε * cumsum[i-1]), weights[0] = 1
-    exponents = torch.cat(
-        [torch.zeros(1, device=dev, dtype=segment_losses.dtype), cumsum_losses[:-1]]
-    )  # (n_segments,)
+    exponents = torch.cat([cumsum_losses.new_zeros(1), cumsum_losses[:-1]])   # (n_segments,)
 
     return torch.exp(-epsilon * exponents)
+
+
+# Loss modules that are an elementwise loss followed by a mean/sum: they can be
+# evaluated once on the whole residual and reduced per segment (segment_losses).
+_ELEMENTWISE_LOSSES = {
+    nn.MSELoss:      lambda f, r: F.mse_loss(r, torch.zeros_like(r), reduction="none"),
+    nn.L1Loss:       lambda f, r: F.l1_loss(r, torch.zeros_like(r), reduction="none"),
+    nn.SmoothL1Loss: lambda f, r: F.smooth_l1_loss(r, torch.zeros_like(r), reduction="none", beta=f.beta),
+    nn.HuberLoss:    lambda f, r: F.huber_loss(r, torch.zeros_like(r), reduction="none", delta=f.delta),
+}
+
+
+def segment_sizes(sample_size: int, n_segments: int) -> List[int]:
+    """Segment lengths used by :func:`segment_temporal_residuals` (remainder to the first segments)."""
+    base, rem = divmod(sample_size, n_segments)
+    return [base + (1 if i < rem else 0) for i in range(n_segments)]
+
+
+def segment_losses(residual: torch.Tensor, meFn, n_segments: int) -> torch.Tensor:
+    """Per-segment loss, shape ``(n_segments,)``.
+
+    Equal in value (to float32 rounding) to
+    ``torch.stack([meFn(s, 0*s) for s in segment_temporal_residuals(residual, n_segments)])``.
+    For ``nn.MSELoss``, ``nn.L1Loss``, ``nn.SmoothL1Loss`` and ``nn.HuberLoss`` with
+    ``reduction`` 'mean' or 'sum', the elementwise loss is computed once and reduced per
+    segment (one reshape for equal segments, one scatter-add otherwise).  Any other
+    callable falls back to one ``meFn`` call per segment.
+    """
+    elem = _ELEMENTWISE_LOSSES.get(type(meFn))
+    if elem is None or getattr(meFn, "reduction", None) not in ("mean", "sum"):
+        segs = segment_temporal_residuals(residual, n_segments)
+        return torch.stack([meFn(seg, torch.zeros_like(seg)) for seg in segs])
+
+    time_dim = residual.shape.index(max(residual.shape))     # same rule as segment_temporal_residuals
+    e = elem(meFn, residual).movedim(time_dim, 0)
+    N = e.shape[0]
+    e = e.reshape(N, -1)                                      # (time points, elements per time point)
+    R = e.shape[1]
+    mean = meFn.reduction == "mean"
+    if N % n_segments == 0:
+        e = e.reshape(n_segments, -1)
+        return e.mean(1) if mean else e.sum(1)
+    sizes = torch.tensor(segment_sizes(N, n_segments), device=e.device)
+    ids = torch.repeat_interleave(torch.arange(n_segments, device=e.device), sizes)
+    s = e.new_zeros(n_segments).index_add_(0, ids, e.sum(1))
+    return s / (sizes * R).to(s.dtype) if mean else s
 
 
 def weighted_temporal_ode_loss(
@@ -151,7 +192,8 @@ def weighted_temporal_ode_loss(
     meFn=nn.MSELoss(),
     n_segments: int = 10,
     epsilon: float = 1.0,
-    normalize_weights: bool = True,
+    tolerance: float = 1e-6,
+    normalise_weights: bool = True,
     device: str | None = None,
     return_weights=False,
 ) -> torch.Tensor:
@@ -171,8 +213,12 @@ def weighted_temporal_ode_loss(
         Number of temporal segments.
     epsilon : float
         Decay rate for the causal weights.
-    normalize_weights : bool
-        If ``True``, divide weights by ``n_segments``.
+    tolerance : float
+        How above nought are we going to consider active segment
+    normalise_weights : bool
+        If ``True``, divide weights by the number of active segments
+        (weight > ``tolerance``).  Note: this is not the paper's 1/N_t
+        (divide by ``n_segments``) unless all segments are active.
     device : str or None
         Computation device.  ``None`` infers from ``residual``.
 
@@ -181,16 +227,15 @@ def weighted_temporal_ode_loss(
     torch.Tensor
         Scalar weighted ODE loss.
     """
-    segments = segment_temporal_residuals(residual, n_segments)
+    seg_losses = segment_losses(residual, meFn, n_segments)
 
-    segment_losses = torch.stack([meFn(seg, torch.zeros_like(seg)) for seg in segments])
+    weights = compute_temporal_weights(seg_losses, epsilon, device)
 
-    weights = compute_temporal_weights(segment_losses, epsilon, device)
+    if normalise_weights:
+        # count of active segments as a tensor: no host-device sync on GPU
+        weights = weights / (weights > tolerance).sum()
 
-    if normalize_weights:
-        weights = weights / weights.shape[0]
-
-    total = torch.sum(weights * segment_losses)
+    total = torch.dot(weights, seg_losses)
     if return_weights:
-        return total, weights.detach(), segment_losses.detach()
+        return total, weights.detach(), seg_losses.detach()
     return total

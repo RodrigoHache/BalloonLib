@@ -9,7 +9,7 @@ import torch
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import MultipleLocator
 
-from balloonlib.utils import scale_domains, tensor2np, timeBall, tofit
+from balloonlib.utils import scale_domains, tensor2np, timeBall, tofit, drive_moments
 from balloonlib.data import segmentData, experimental_stims
 
 # ---------------------------------------------------------------------------
@@ -442,9 +442,9 @@ def plot_trace(loss_trace: dict, title: str, step_size: int = 0):
 
 def plot_balloon_fitting(
     model,
-    t_normalized,
+    t_normalised,
     domain,
-    stimulus=None,
+    impulse=None,
     title="BOLD Fitting Results",
     numerical_solutions=None,
     data_params=None,
@@ -463,13 +463,13 @@ def plot_balloon_fitting(
     ----------
     model : torch.nn.Module
         Trained PINN model exposing ``predictor()``, ``f``, ``m``, ``v``, ``q``.
-    t_normalized : torch.Tensor
+    t_normalised : torch.Tensor
         Normalised time points, shape ``(N, 1)`` or ``(N,)``.
     domain : tuple of float
         Physical time domain ``(t_min, t_max)`` used to rescale
-        ``t_normalized`` for plotting.
-    stimulus : torch.Tensor or None
-        Stimulus tensor; required when ``model.impulse`` is ``True``.
+        ``t_normalised`` for plotting.
+    Impulse : torch.Tensor or None
+        impulse tensor; required when ``model.impulse`` is ``True``.
     title : str
         Figure super-title.
     numerical_solutions : dict or None
@@ -479,8 +479,8 @@ def plot_balloon_fitting(
         Experimental parameters needed for BOLD subplots.  Required keys
         when ``show_bold_signal=True``:
         ``'Sti_Onsets'``, ``'TR'``, ``'stim_length [seg]'``,
-        ``'Bold_Signal'``, ``'Bold_data_time'``, ``'Overallstim'``,
-        ``'Overall_stim_time'``, ``'stimulus'``, ``'stimulus_time'``.
+        ``'Bold_Signal'``, ``'Bold_data_time'``, ``'stimuli'``,
+        ``'stimuli_time'``, ``'stimulus'``, ``'stimulus_time'``.
     first_non_zero_index : int or None
         Index of first stimulus onset (computed automatically if ``None``).
     iteration : int or None
@@ -499,8 +499,8 @@ def plot_balloon_fitting(
     # Compute time points in original domain
 
     t_plot, plot_scale = scale_domains(
-        t_normalized.squeeze(),
-        original_domains=t_normalized[[0, -1]].squeeze().tolist(),
+        t_normalised.squeeze(),
+        original_domains=t_normalised[[0, -1]].squeeze().tolist(),
         new_domains=domain,
     )
     t_plot = tensor2np(t_plot)
@@ -508,17 +508,19 @@ def plot_balloon_fitting(
 
     # Prepare model inputs
     if hasattr(model, "impulse") and model.impulse:
-        if stimulus is None:
+        if impulse is None:
             raise ValueError("stimulus must be provided when model.impulse is True")
-        if t_normalized.ndim == 1:
-            t_normalized = t_normalized.view(-1, 1)
-        inputs = torch.cat([t_normalized, stimulus.view(-1, 1)], dim=1)
+        if t_normalised.ndim == 1:
+            t_normalised = t_normalised.view(-1, 1)
+        inputs = torch.cat([t_normalised, impulse.view(-1, 1)], dim=1)
     else:
-        inputs = t_normalized.view(-1, 1)
+        inputs = t_normalised.view(-1, 1)
 
     if first_non_zero_index is None:
         first_non_zero_index = 0
-
+    
+    _was_training = model.training
+    _cache = {k: getattr(model, k) for k in ("f", "m", "v", "q", "_x") if hasattr(model, k)}
     model.eval()
     with torch.no_grad():
         pred, _ = model(inputs)
@@ -528,7 +530,11 @@ def plot_balloon_fitting(
         hrf_predict_linear = model.predictor(linear=True)
         hrf_pred_np = tensor2np(hrf_predict)
         hrf_pred_linear_np = tensor2np(hrf_predict_linear)
-
+    
+    for _k, _val in _cache.items():
+        setattr(model, _k, _val)
+    model.train(_was_training)
+    
     if show_bold_signal:
         fig = plt.figure(figsize=(14, 6), layout="constrained")
         gs = GridSpec(3, 4, figure=fig)
@@ -576,7 +582,7 @@ def plot_balloon_fitting(
             c="midnightblue",
             label="Numerical m",
         )
-    # ax0t.axvline(x=t_normalized[first_non_zero_index].item(), color="orange", ls="-.")
+    # ax0t.axvline(x=t_normalised[first_non_zero_index].item(), color="orange", ls="-.")
     ax0.axvline(x=t_plot[first_non_zero_index], color="r", ls="--")
     ax0.axhline(y=1 + 1e-4, color="r", ls="--")
     ax0.axhline(y=1 - 1e-4, color="r", ls="--")
@@ -585,8 +591,8 @@ def plot_balloon_fitting(
     ax0.legend(fontsize=10)
     ax0.set_xlabel("PI time")
     ax0.set_title("f_in and m")
-    new_tlims = t_normalized[0].item() + (np.array(ax0.get_xlim()) - t_plot[0]) / plot_scale
-    new_tticks = np.round(t_normalized[0].item() + (ax0.get_xticks() - t_plot[0]) / plot_scale, 2)[
+    new_tlims = t_normalised[0].item() + (np.array(ax0.get_xlim()) - t_plot[0]) / plot_scale
+    new_tticks = np.round(t_normalised[0].item() + (ax0.get_xticks() - t_plot[0]) / plot_scale, 2)[
         1:-1
     ]
     # ax0t.set_xlabel("NN time")
@@ -633,10 +639,10 @@ def plot_balloon_fitting(
     # Subplot 2: HRF
     ax2.plot(t_plot, hrf_pred_np, lw=1.5, alpha=0.7, label="PINN HRF")
     # ax2.plot(t_plot, hrf_pred_linear_np, lw=1.5, alpha=0.7, label="PINN HRF (linear)")
-    if numerical_solutions is not None and "bold" in numerical_solutions:
+    if numerical_solutions is not None and "Numpy HRF" in numerical_solutions:
         ax2.plot(
             t_plot,
-            tensor2np(numerical_solutions["bold"]),
+            tensor2np(numerical_solutions["Numpy HRF"]),
             "--",
             lw=1,
             c="midnightblue",
@@ -670,15 +676,18 @@ def plot_balloon_fitting(
                 "'TR', and 'stim_length [seg]' keys"
             )
 
+        A_drv  = data_params.get("drive_area", 1)
+        tc_drv = data_params.get("drive_centroid", 0.995)
+
         if "stimulus" in data_params and "stimulus_time" in data_params:
             stimulus_single = data_params["stimulus"]
-            stimulus_time = data_params["stimulus_time"]
+            stimulus_time = data_params["stimulus_time"]- tc_drv
         else:
             time_bf_stim = data_params.get("TR", TR)
             time_max = torch.ceil(torch.tensor([domain[1]])).to(dtype=torch.int32)
             stimulus_single, stimulus_time = experimental_stims(
                 time_max.item() / TR,
-                Sti_Onsets=[time_bf_stim],
+                Sti_Onsets=np.asarray([time_bf_stim- tc_drv], dtype=float),
                 TR=TR,
                 block_len=stim_length,
                 stmxblck=data_params.get("stim_x_block", 1),
@@ -687,15 +696,22 @@ def plot_balloon_fitting(
         single_trial_bold, trial_time = tofit(
             stimulus_single, hrf_predict, stimulus_time[-1].item() + 0.01
         )
+        single_trial_bold = 100*(0.01/A_drv)*single_trial_bold
+        
+        m = min(len(trial_time), len(single_trial_bold))
+        trial_time, single_trial_bold = trial_time[:m], single_trial_bold[:m]
         trial_time_np = tensor2np(trial_time)
 
-        if "Overallstim" in data_params and "Overall_stim_time" in data_params:
-            Overall_stimuli = data_params["Overallstim"]
-            Overall_stim_time = data_params["Overall_stim_time"]
+        stimulus_time = stimulus_time[:m]
+        stimulus_single = stimulus_single[:m]
+
+        if "stimuli" in data_params and "stimuli_time" in data_params:
+            Overall_stimuli = data_params["stimuli"]
+            stimuli_time = data_params["stimuli_time"] - tc_drv
         else:
-            Overall_stimuli, Overall_stim_time = experimental_stims(
+            Overall_stimuli, stimuli_time = experimental_stims(
                 Bold_Signal.shape[0] + (data_params.get("t0", 0) // TR),
-                Sti_Onsets=Sti_Onsets,
+                Sti_Onsets=np.asarray(Sti_Onsets - tc_drv, dtype=float) ,
                 TR=TR,
                 block_len=stim_length,
                 stmxblck=data_params.get("stim_x_block", 1),
@@ -704,10 +720,10 @@ def plot_balloon_fitting(
         Overall_bold_pinn, Bold_pinn_time = tofit(
             Overall_stimuli,
             hrf_predict,
-            Overall_stim_time[-1].item() + 0.01,
+            stimuli_time[-1].item() + 0.01,
         )
-
-        Bold_data_time = data_params.get("Bold_data_time")
+        Overall_bold_pinn = 100*(0.01/A_drv)*Overall_bold_pinn
+        Bold_data_time = data_params.get("Bold_data_time", np.arange(len(Bold_Signal)*TR))
         if Bold_data_time is not None:
             samples_index, _ = timeBall(Bold_data_time, Bold_pinn_time)
             Bold_arr = (
@@ -716,17 +732,6 @@ def plot_balloon_fitting(
             offset = -np.mean(tensor2np(Overall_bold_pinn[samples_index]) - Bold_arr)
         else:
             offset = 0.0
-
-        ax3.plot(
-            stimulus_time.cpu(),
-            tensor2np(stimulus_single),
-            alpha=0.7,
-            color="green",
-            label="Stimulus",
-        )
-        ax3.plot(
-            trial_time_np, offset + tensor2np(single_trial_bold), alpha=0.7, label="Estimated BOLD"
-        )
 
         if hasattr(Bold_Signal, "__len__"):
             time_bf_stim = data_params.get("TR", TR)
@@ -740,6 +745,18 @@ def plot_balloon_fitting(
             for k, j in zip(time_corrected, Bold_segments):
                 ax3.scatter(tensor2np(k), tensor2np(j), color="orange")
 
+        m = min(len(trial_time), len(single_trial_bold))
+        ax3.plot(
+            stimulus_time.cpu(),
+            tensor2np(stimulus_single),
+            alpha=0.7,
+            color="green",
+            label="Stimulus",
+        )
+        ax3.plot(
+            trial_time_np, offset + tensor2np(single_trial_bold),
+            alpha=0.7, label="Estimated BOLD"
+        )
         ax3.axvline(x=trial_time_np[torch.argmax(stimulus_single).item()], color="r", ls="--")
         ax3.xaxis.set_minor_locator(MultipleLocator(2.5))
         ax3.grid(visible=False, which="both")
@@ -751,13 +768,14 @@ def plot_balloon_fitting(
             Bold_arr = (
                 Bold_Signal if isinstance(Bold_Signal, np.ndarray) else tensor2np(Bold_Signal)
             )
-            
-            ax4.scatter(tensor2np(Bold_data_time), Bold_arr, label="data")
+            Bold_time = (Bold_data_time if isinstance(Bold_data_time, np.ndarray) else tensor2np(Bold_data_time)
+            )
+            ax4.scatter(Bold_time, Bold_arr, label="data")
         ax4.plot(
             tensor2np(Bold_pinn_time), offset + tensor2np(Overall_bold_pinn), label="Estimated BOLD"
         )
         ax4.plot(
-            tensor2np(Overall_stim_time), tensor2np(Overall_stimuli), label="Stimuli", color="green"
+            tensor2np(stimuli_time), tensor2np(Overall_stimuli), label="Stimuli", color="green"
         )
         ax4.xaxis.set_minor_locator(MultipleLocator(2.5))
         ax4.legend(fontsize=10, loc="lower center", ncol=3)

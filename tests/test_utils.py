@@ -108,18 +108,35 @@ class TestPytorchConvolve:
 
 
 class TestTimeBall:
+    def test_numpy_inputs(self):
+        """Hand-built notebook dicts pass numpy arrays (float64) for Bold_data_time."""
+        t1 = np.arange(5) * 1.75
+        t2 = torch.arange(0, 10, 0.01)
+        idx, valid = timeBall(t1, t2)
+        assert bool(valid.all())
+        assert torch.allclose(t2[idx].double(), torch.as_tensor(t1), atol=0.005 + 1e-6)
+        idx_t, _ = timeBall(torch.as_tensor(t1), t2)
+        assert torch.equal(idx, idx_t)
+
     def test_exact_match(self):
         t1 = torch.tensor([[0.0], [0.5], [1.0]])
         t2 = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0])
         idx, _ = timeBall(t1, t2, delta=0.01)
         assert idx.tolist() == [0, 2, 4]
 
-    def test_no_match_returns_zero(self):
+    def test_no_match_is_flagged_invalid(self):
         t1 = torch.tensor([[10.0]])  # far from t2
         t2 = torch.tensor([0.0, 0.5, 1.0])
-        idx, _ = timeBall(t1, t2, delta=0.01)
-        # scalar or 1-element tensor: value should be 0
-        assert int(idx) == 0
+        idx, valid = timeBall(t1, t2, delta=0.01)
+        assert not bool(valid)       # unmatched -> flagged, not zero-filled
+        assert int(idx) == 2         # the nearest neighbour is still reported
+
+    def test_mixed_match_keeps_order(self):
+        t1 = torch.tensor([0.0, 0.5, 5.0])            # last time is out of range
+        t2 = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0])
+        idx, valid = timeBall(t1, t2, delta=0.01)
+        assert valid.tolist() == [True, True, False]
+        assert idx[valid].tolist() == [0, 2]          # matched indices, in input order
 
 
 # ---------------------------------------------------------------------------

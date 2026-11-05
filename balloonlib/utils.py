@@ -251,30 +251,8 @@ def DoubleGamma(
 # Temporal matching
 # ---------------------------------------------------------------------------
 @torch.compile()
-def timeBall(time_tensor1, time_tensor2, delta=0.005):
-    """Find nearest-neighbour indices between two time tensors.
-
-    For each value in ``time_tensor1``, locates the closest value in
-    ``time_tensor2`` that falls within ``+/- delta``.
-
-    Parameters
-    ----------
-    time_tensor1 : torch.Tensor
-        Reference times, shape ``(N,)`` or ``(N, 1)``.
-    time_tensor2 : torch.Tensor
-        Search times, shape ``(M,)``.
-    delta : float
-        Matching tolerance.
-
-    Returns
-    -------
-    indices : torch.Tensor
-        Sorted indices into ``time_tensor2``, shape ``(N,)``.
-    ball_index : None
-        Reserved; always ``None``.
-    """
-    t2 = time_tensor2.squeeze().contiguous()
-    t1 = time_tensor1.squeeze().contiguous().to(t2.device)
+def _time_ball_kernel(t1, t2, delta):
+    """Compiled core of :func:`timeBall`; ``t1``, ``t2`` are 1-D tensors on one device."""
     # Binary search to find insertion points
     indices = torch.bucketize(t1, t2)
 
@@ -291,9 +269,44 @@ def timeBall(time_tensor1, time_tensor2, delta=0.005):
 
     # Filter to only include matches within delta
     valid_mask = min_dist <= delta
-    result_indices = torch.where(valid_mask, nearest_idx, torch.zeros_like(nearest_idx))
+    
+    # Unmatched entries keep their NEAREST index; the caller decides what to do
+    # with them via valid_mask.  
+    if bool(valid_mask.any()):
+        chk = nearest_idx[valid_mask]
+        assert bool((chk[1:] >= chk[:-1]).all()), "time_tensor1 must be sorted ascending"
 
-    return result_indices.sort()[0], None
+    return nearest_idx, valid_mask   
+
+
+def timeBall(time_tensor1, time_tensor2, delta=0.005):
+    """Find nearest-neighbour indices between two time tensors.
+
+    For each value in ``time_tensor1``, locates the closest value in
+    ``time_tensor2`` that falls within ``+/- delta``.
+
+    Parameters
+    ----------
+    time_tensor1 : torch.Tensor, numpy.ndarray or sequence
+        Reference times, shape ``(N,)`` or ``(N, 1)``.
+    time_tensor2 : torch.Tensor, numpy.ndarray or sequence
+        Search times, shape ``(M,)``.
+    delta : float
+        Matching tolerance.
+
+    Returns
+    -------
+    indices : torch.Tensor
+        Sorted indices into ``time_tensor2``, shape ``(N,)``.
+    ball_index : None
+        Reserved; always ``None``.
+    """
+    # Convert OUTSIDE the compiled region: notebooks often pass numpy arrays
+    # (e.g. a hand-built plot dict), which have no .contiguous() and which
+    # torch.compile would otherwise trace as numpy ops.
+    t2 = torch.as_tensor(time_tensor2).squeeze().contiguous()
+    t1 = torch.as_tensor(time_tensor1, device=t2.device).squeeze().contiguous()
+    return _time_ball_kernel(t1, t2, delta)
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +349,49 @@ def pytorch_convolve(signal, kernel, mode="full", flip=False):
     kernel = kernel[None, None, :] if not flip else kernel.flip(-1)[None, None, :]
 
     return F.conv1d(signal, kernel, padding=0).squeeze()
+# ---------------------------------------------------------------------------
+# Training-drive moments
+# ---------------------------------------------------------------------------
+def drive_moments(I, dt=0.01):
+    """Area, centroid and variance of the PINN training drive ``Balloon_params["I"]``.
+
+    The PINN kernel ``hrf_pinn`` is the response to ``I``, not to an impulse.  To first
+    order it equals the impulse response scaled by the drive's area and delayed by its
+    centroid,  k(t) ~ A h(t - t_c) + (A sigma^2 / 2) h''(t - t_c),  so a prediction built
+    with ``tofit(s, hrf_pinn)`` must be divided by ``A`` and advanced by ``t_c``.
+
+    Parameters
+    ----------
+    I : torch.Tensor or array-like
+        Drive sampled on the PINN grid, shape ``(N,)`` or ``(N, 1)``; sample ``j`` is at
+        time ``j * dt``.  Must be non-negative with a positive sum.
+    dt : float
+        Grid spacing in seconds.
+
+    Returns
+    -------
+    A : float
+        Area  sum(I) * dt  [s]  (height x duration for a block).
+    t_c : float
+        Centroid  sum(t I) / sum(I)  [s].  For a block on samples ``i0 .. i1-1`` this is
+        ``(i0 + i1 - 1) * dt / 2``, i.e. half a sample earlier than onset + duration/2.
+    var : float
+        Variance about the centroid [s^2] (``d^2/12`` for a block of duration d, minus
+        ``dt^2/12`` from sampling); sets the size of the second-order blur term.
+    """
+    I = torch.as_tensor(I).detach().reshape(-1)
+    if not I.is_floating_point():                    # ints / bools -> default float dtype
+        I = I.to(torch.get_default_dtype())
+    if bool((I < 0).any()):
+        raise ValueError("drive_moments: I must be non-negative")
+    total = float(I.sum())
+    if total <= 0:
+        raise ValueError("drive_moments: I must have a positive sum")
+    t = torch.arange(I.numel(), dtype=I.dtype, device=I.device) * dt
+    A = total * dt
+    t_c = float((t * I).sum()) / total
+    var = float(((t - t_c) ** 2 * I).sum()) / total
+    return A, t_c, var
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +424,8 @@ def tofit(stim, hrf, time_max, dt=0.01):
     test_time = torch.arange(0, time_max, dt, device=stim.device, dtype=stim.dtype)
     test = pytorch_convolve(stim, hrf, mode="full", flip=True)[: test_time.size(0)]
     return test, test_time
+
+
 
 # ---------------------------------------------------------------------------
 # Soft transition

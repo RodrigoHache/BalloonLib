@@ -247,7 +247,7 @@ Adam steps with StepLR decay.
 
    plot_balloon_fitting(
        model               = model,
-       t_normalized        = t_nn,
+       t_normalised        = t_nn,
        domain              = domain,
        stimulus            = stimulus,
        title               = 'Noise-free simulation — PINN fit',
