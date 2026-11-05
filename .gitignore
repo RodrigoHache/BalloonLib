@@ -60,3 +60,6 @@ docs/_build/
 
 #Version kept only as backup 
 *.old
+
+# Local working patches
+*.patch
