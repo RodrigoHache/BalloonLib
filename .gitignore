@@ -63,3 +63,6 @@ docs/_build/
 
 # Local working patches
 *.patch
+
+# graphify knowledge-graph output (local, regenerable)
+graphify-out/
